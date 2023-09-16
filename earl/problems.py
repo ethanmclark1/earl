@@ -26,16 +26,8 @@ desc = [
 def get_problem_list():
     return list(problems.keys())
 
-def get_instance_constr(instance_name):
-    instance_constr = problems[instance_name]
-    return instance_constr
-
-def get_instantiated_desc(problem_instance, num_obstacles):
-    obstacles = []
-    count = num_obstacles
-    instance_desc = copy.deepcopy(desc)
-    
-    instance_constr = get_instance_constr(problem_instance)
+def get_entity_positions(problem_instance, num_obstacles):
+    instance_constr = problems[problem_instance]
     all_states = set((i,j) for i in range(8) for j in range(8))
     unavailable_states = set(chain.from_iterable(instance_constr))
     available_states = list(all_states - unavailable_states)
@@ -44,6 +36,22 @@ def get_instantiated_desc(problem_instance, num_obstacles):
     start = available_states[start_idx]
     goal = available_states[goal_idx]
     
+    obstacles = []
+    count = num_obstacles
+    while count > 0:
+        row_idx = count % len(instance_constr)
+        row_len = len(instance_constr[row_idx])
+        col_idx = np.random.choice(range(row_len))
+        obstacles += [instance_constr[row_idx][col_idx]]
+        count -= 1
+    
+    return start, goal, obstacles
+    
+def get_instantiated_desc(problem_instance, num_obstacles):
+    instance_desc = copy.deepcopy(desc)
+    
+    start, goal, obstacles = get_entity_positions(problem_instance, num_obstacles)
+        
     tmp_lst = list(instance_desc[start[0]])
     tmp_lst[start[1]] = 'S'
     instance_desc[start[0]] = "".join(tmp_lst)
@@ -51,13 +59,6 @@ def get_instantiated_desc(problem_instance, num_obstacles):
     tmp_lst = list(instance_desc[goal[0]])
     tmp_lst[goal[1]] = 'G'
     instance_desc[goal[0]] = "".join(tmp_lst)
-    
-    while count > 0:
-        row_idx = count % len(instance_constr)
-        row_len = len(instance_constr[row_idx])
-        col_idx = np.random.choice(range(row_len))
-        obstacles += [instance_constr[row_idx][col_idx]]
-        count -= 1
     
     for obstacle in obstacles:
         tmp_lst = list(instance_desc[obstacle[0]])
