@@ -18,8 +18,6 @@ class Driver:
         self.earl = EARL(self.env, num_obstacles)
         self.num_obstacles = num_obstacles
     
-
-        
     def act(self, problem_instance, train_epochs=20000, eval_epochs=100):
         reconfiguration = self.earl.get_reconfigured_env(problem_instance)
         desc = self._make_desc(problem_instance)

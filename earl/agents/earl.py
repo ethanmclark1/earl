@@ -1,20 +1,26 @@
 import os
+import copy
+import torch
+import wandb
 import pickle
-import problems
 import numpy as np
 import networkx as nx
+
+from agents.utils.network import DuelingDQN
 
 class EARL:
     def __init__(self, env, num_obstacles):
         self._init_hyperparams()
                 
         self.env = env
-        state_dims = env.observation_space.n
-        action_dims = env.action_space.n
-        self.dims = env.ncols
-        
+        self.buffer = None
+        self.num_actions = 64
+        self.max_adaptive_actions = 8
+        self.configs_to_consider = 250
         self.num_obstacles = num_obstacles
-        self.q_table = np.zeros((state_dims, action_dims))
+        self.rng = np.random.default_rng(seed=42)
+        
+        state_dims = env.observation_space.n
         
     def _save(problem_instance, reconfiguration):
         directory = 'earl/agents/history'
@@ -33,44 +39,128 @@ class EARL:
         with open(file_path, 'rb') as f:
             reconfiguration = pickle.load(f)
         return reconfiguration
-            
+    
     def _init_hyperparams(self):
-        self.alpha = 0.7
-        self.epsilon = 1
-        self.gamma = 0.95
-        self.epsilon_decay = 0.9999
+        num_records = 10
         
-    def _get_action(self):
-        if np.random.random() > self.epsilon:
-            action = np.argmax(self.value_function[:])
-        else:
-            action = np.random.randint(len(self.value_function))
+        self.tau = 5e-3
+        self.alpha = 1e-4
+        self.gamma = 0.99
+        self.batch_size = 256
+        self.granularity = 0.20
+        self.memory_size = 30000
+        self.epsilon_start = 1.0
+        self.dummy_episodes = 200
+        self.num_episodes = 15000
+        self.epsilon_decay = 0.9997
+        self.record_freq = self.num_episodes // num_records
+        
+    def _init_wandb(self, problem_instance):
+        wandb.init(project='earl', entity='ethanmclark1', name=problem_instance)
+        config = wandb.config
+        config.tau = self.tau
+        config.alpha = self.alpha
+        config.gamma = self.gamma 
+        config.epsilon = self.epsilon_start
+        config.batch_size = self.batch_size
+        config.granularity = self.granularity
+        config.memory_size = self.memory_size
+        config.num_episodes = self.num_episodes
+        config.epsilon_decay = self.epsilon_decay
+        config.dummy_episodes = self.dummy_episodes
+        
+    def _decrement_exploration(self):
+        self.epsilon *= self.epsilon_decay
+        self.epsilon = max(0.01, self.epsilon)
+        
+    def _select_action(self, state):
+        with torch.no_grad():
+            if np.random.random() < self.epsilon:
+                action = np.random.randint(len(self.num_actions))
+            else:
+                q_vals = self.dqn(torch.tensor(state))
+                action = torch.argmax(q_vals).item()
         return action
     
-    # TODO: Generate start and goal positions as well
-    def _generate_instance(self, problem_instance):
-        obstacles = []
-        count = self.num_obstacles
+    def _step(self, problem_instance, action, num_adaptive_actions):
+        reward = 0
+        done = False   
         
-        instance_constr = problems.get_instance_constr(problem_instance)
-        while count > 0:
-            row_idx = count % len(instance_constr)
-            row_len = len(instance_constr[row_idx])
-            col_idx = np.random.choice(range(row_len))
-            obstacles += [instance_constr[row_idx][col_idx]]
-            count -= 1
+        reconfiguration = copy.deepcopy(self.env.unwrapped.desc)
+        reconfiguration[action] = b'F'
         
-        desc = problems.get_desc(obstacles)
+        if num_adaptive_actions == self.max_adaptive_actions:
+            done = True
+            reward = self._get_reward(reconfiguration, problem_instance)    
         
-        list_of_lists = [list(row) for row in desc]
-        converted_desc = np.array(list_of_lists, dtype='|S1')
+        return reward, next_state, done, reconfiguration
+    
+    def _populate_buffer(self, problem_instance):
+        for _ in range(self.dummy_episodes):
+            done = False
+            num_adaptive_actions = 0
+            while not done:
+                num_adaptive_actions += 1
+                action = self._select_action()
+                reward, next_state, done, _ = self._step(problem_instance, action, num_adaptive_actions)
+                self.buffer.add((state, action, reward, next_state, done))
+                num_adaptive_actions += 1
+                
+    def _get_reward(self, reconfiguration, problem_instance):
+        a=3
         
-        return converted_desc
+    def _learn(self):
+        a=3
+                
+    def _train(self, problem_instance):
+        losses = []
+        returns = []
+        best_adaptive_actions = None
+        best_reward = -np.inf
+        
+        for episode in range(self.num_episodes):
+            done = False
+            num_adaptive_actions = 0
+            action_lst = []
+            while not done:
+                num_adaptive_actions += 1
+                action = self._select_action(state)
+                reward, next_state, done, _ = self._step(problem_instance, action, num_adaptive_actions)
+                self.buffer.add((state, action, reward, next_state, done))
+                loss, td_error, tree_idxs = self._learn()
+                state = next_state
+                action_lst.append(action)
+                
+            self.decrement_epsilon()
+            
+            losses.append(loss)
+            returns.append(reward)
+            avg_loss = np.mean(losses[-100:])
+            avg_returns = np.mean(returns[-100:])
+            
+            if reward > best_reward:
+                best_reward = reward
+                best_adaptive_actions = action_lst
+                
+        return best_adaptive_actions, best_reward
     
     def _generate_reconfiguration(self, problem_instance):
-        desc = self._generate_instance(problem_instance)
-        a=3
-    
+        self._init_wandb(problem_instance)
+        
+        self.epsilon = self.epsilon_start
+        self.buffer = None
+        self.dqn = DuelingDQN(self.state_dims, self.num_actions, self.alpha)
+        self.target_dqn = copy.deepcopy(self.dqn)
+        
+        self._populate_buffer(problem_instance)
+        best_adaptive_actions, best_reward = self._train(problem_instance)
+        
+        wandb.log({'Final Reward': best_reward})
+        wandb.log({'Final Adaptive Actions': best_adaptive_actions})
+        wandb.finish()
+        
+        return best_adaptive_actions
+            
     def get_reconfigured_env(self, problem_instance):
         try:
             reconfiguration = self._load(problem_instance)
