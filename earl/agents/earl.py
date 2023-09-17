@@ -8,31 +8,34 @@ import numpy as np
 import networkx as nx
 
 from itertools import chain
+from sklearn.preprocessing import OneHotEncoder
+
 from agents.utils.network import DuelingDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 class EARL:
     def __init__(self, env, num_obstacles):
         self._init_hyperparams()
+        
+        self.max_actions = 5
+        self.action_set = set()
+        self.mapping = {'F': 0, 'H': 1, 'S': 2, 'G': 3, 'T': 4}
                 
         self.env = env
         self.dqn = None
         self.buffer = None
-        self.state_dims = 64
-        self.num_actions = 64
-        self.configs_to_consider = 250
+        self.configs_to_consider = 500
         self.num_cols = env.unwrapped.ncol
         self.num_obstacles = num_obstacles
+        self.num_actions = env.observation_space.n
+        self.state_dims = env.observation_space.n * len(self.mapping)
         
         self.rng = np.random.default_rng(seed=42)
+        self.encoder = OneHotEncoder(categories=[range(len(self.mapping))])
         
-        self.max_actions = 8
-        self.action_set = set()
-        self.mapping = {'F': 0, 'H': 1, 'S': 2, 'G': 3, 'O': 4}
-        
-    def _save(problem_instance, reconfiguration):
+    def _save(self, problem_instance, reconfiguration):
         directory = 'earl/agents/history'
-        filename = f'{problem_instance}'
+        filename = f'{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -55,23 +58,21 @@ class EARL:
         self.alpha = 1e-4
         self.gamma = 0.99
         self.batch_size = 256
-        self.granularity = 0.20
-        self.memory_size = 30000
+        self.memory_size = 10000
         self.epsilon_start = 1.0
+        self.num_episodes = 5000
         self.dummy_episodes = 200
-        self.num_episodes = 15000
         self.epsilon_decay = 0.9997
         self.record_freq = self.num_episodes // num_records
         
     def _init_wandb(self, problem_instance):
-        wandb.init(project='earl', entity='ethanmclark1', name=problem_instance)
+        wandb.init(project='earl', entity='ethanmclark1', name=problem_instance.capitalize())
         config = wandb.config
         config.tau = self.tau
         config.alpha = self.alpha
         config.gamma = self.gamma 
         config.epsilon = self.epsilon_start
         config.batch_size = self.batch_size
-        config.granularity = self.granularity
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay
@@ -86,13 +87,13 @@ class EARL:
         flattened_state = np.array(list(chain.from_iterable(state)))
         numerical_state = np.vectorize(self.mapping.get)(flattened_state)
         return numerical_state
-                
-    def _select_action(self, state):
+    
+    def _select_action(self, onehot_state):
         with torch.no_grad():
-            if self.rng.random() > self.epsilon:
+            if self.rng.random() < self.epsilon:
                 action = self.rng.integers(self.num_actions)
             else:
-                q_vals = self.dqn(torch.FloatTensor(state))
+                q_vals = self.dqn(torch.FloatTensor(onehot_state))
                 action = torch.argmax(q_vals).item()
         return action
     
@@ -104,33 +105,61 @@ class EARL:
             state = start_state
             while not done:
                 num_action += 1
-                action = self._select_action(state)
-                reward, next_state, done, _ = self._step(problem_instance, state, action, num_action)
-                self.buffer.add((state, action, reward, next_state, done))
+                onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
+                action = self._select_action(onehot_state)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
+                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 state = next_state
 
-    # TODO: Implement reward function
+    # Calculate rewards for a given state by averaging A* path lengths over multiple trials
     def _get_reward(self, problem_instance, state):
-        desc = state.reshape((8, 8))
+        def manhattan_dist(a, b):
+            return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
+        rewards = []
+        desc = copy.deepcopy(state).reshape((8, 8))
+        row_idx, col_idx = np.where(desc == self.mapping['T'])
+        transporters = set(zip(row_idx, col_idx))
+        
         for _ in range(self.configs_to_consider):
+            graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
             start, goal, obstacles = problems.get_entity_positions(problem_instance, self.num_obstacles)
             desc[start] = self.mapping['S']
             desc[goal] = self.mapping['G']
             for obstacle in obstacles:
-                desc[obstacle] = self.mapping['H']
-            a=3
+                if desc[obstacle] != self.mapping['T']:
+                    desc[obstacle] = self.mapping['H']
+            
+            for i in range(self.num_cols):
+                for j in range(self.num_cols):
+                    cell_value = desc[i, j]
+                    for neighbor in graph.neighbors((i, j)):
+                        weight = 6
+                        if cell_value == self.mapping['H']:
+                            weight = 100
+                        elif cell_value == self.mapping['T']:
+                            weight = 0
+                        graph[(i, j)][neighbor]['weight'] = weight
+                        
+            path = set(nx.astar_path(graph, start, goal, manhattan_dist, 'weight'))
+            rewards += [-len(path - transporters)]
+
+        avg_reward = np.mean(rewards)
+        return avg_reward
     
     # Apply reconfiguration to task environment
     def _step(self, problem_instance, state, action, num_actions):
         reward = 0
         done = False   
+        state = copy.deepcopy(state)
         prev_num_actions = len(self.action_set)
         
         next_state = state
-        next_state[action] = self.mapping['O']
+        next_state[action] = self.mapping['T']
         self.action_set.add(action)
         
-        if len(self.action_set) != prev_num_actions or num_actions == self.max_actions:
+        if len(self.action_set) == prev_num_actions or num_actions == self.max_actions:
             done = True
             reward = self._get_reward(problem_instance, next_state)  
             self.action_set.clear()  
@@ -174,19 +203,21 @@ class EARL:
     def _train(self, problem_instance, start_state):
         losses = []
         returns = []
+        best_actions = None
         best_reward = -np.inf
-        best_adaptive_actions = None
         
         for _ in range(self.num_episodes):
             done = False
             action_lst = []
-            state = start_state
             num_actions = 0
+            state = start_state
             while not done:
                 num_actions += 1
+                onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
                 action = self._select_action(state)
-                reward, next_state, done, _ = self._step(problem_instance, action, num_actions)
-                self.buffer.add((state, action, reward, next_state, done))
+                reward, next_state, done = self._step(problem_instance, state, action, num_actions)
+                onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
+                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 loss, td_error, tree_idxs = self._learn()
                 state = next_state
                 action_lst.append(action)
@@ -202,13 +233,13 @@ class EARL:
             wandb.log({"Average Returns": avg_returns})
             
             if reward > best_reward:
+                best_actions = action_lst
                 best_reward = reward
-                best_adaptive_actions = action_lst
                 
-        return best_adaptive_actions, best_reward
+        return best_actions, best_reward
     
     # Generate optimal reconfiguration for a given problem instance
-    def _generate_reconfiguration(self, problem_instance):
+    def _generate_reconfigurations(self, problem_instance):
         self._init_wandb(problem_instance)
         
         self.epsilon = self.epsilon_start
@@ -218,21 +249,31 @@ class EARL:
         
         start_state = self._convert_state(problems.desc)
         self._populate_buffer(problem_instance, start_state)
-        best_adaptive_actions, best_reward = self._train(problem_instance, start_state)
+        best_actions, best_reward = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
-        wandb.log({'Final Adaptive Actions': best_adaptive_actions})
+        wandb.log({'Final Actions': best_actions})
         wandb.finish()
         
-        return best_adaptive_actions
-        
-    def get_reconfigured_env(self, problem_instance):
+        return best_actions
+    
+    # Get reconfigurations for a given problem instance
+    def get_reconfigurations(self, problem_instance):
         try:
-            reconfiguration = self._load(problem_instance)
+            reconfigurations = self._load(problem_instance)
         except FileNotFoundError:
-            print(f'No stored reconfiguration for {problem_instance} problem instance.')
+            print(f'No stored reconfiguration for {problem_instance.capitalize()} problem instance.')
             print('Generating new reconfiguration...\n')
-            reconfiguration = self._generate_reconfiguration(problem_instance)
-            self._save(problem_instance, reconfiguration)
+            reconfigurations = self._generate_reconfigurations(problem_instance)
+            self._save(problem_instance, reconfigurations)
         
-        return reconfiguration
+        return reconfigurations
+    
+    # Apply reconfigurations to task environment
+    def get_reconfigured_env(self, desc, reconfigurations):
+        for reconfigruation in reconfigurations:
+            row = reconfigruation // self.num_cols
+            col = reconfigruation % self.num_cols
+            desc[row, col] = b'T'
+        
+        return desc

@@ -8,7 +8,7 @@ def get_arguments():
     parser.add_argument(
         '--num_obstacles',
         type=int, 
-        default=10,
+        default=12,
         help='Number of obstacles in the environment (no more than 16) {default_val: 6}'
         )
     
