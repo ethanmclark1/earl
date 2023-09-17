@@ -214,7 +214,7 @@ class EARL:
             while not done:
                 num_actions += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                action = self._select_action(state)
+                action = self._select_action(onehot_state)
                 reward, next_state, done = self._step(problem_instance, state, action, num_actions)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
                 self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
