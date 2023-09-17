@@ -5,6 +5,7 @@ import networkx as nx
 import gymnasium as gym
 
 from agents.earl import EARL
+from plotter import plot_metrics
 from arguments import get_arguments
 
 
@@ -43,8 +44,8 @@ class Driver:
         return graph, start, goal, transporter
     
     def act(self, problem_instance, num_episodes):
-        path_len = {'A*': [], 'A* w/ EARL': []}
-        avg_path_len = {'A*': 0, 'A* w/ EARL': 0}
+        path_len = {'A* w/ EARL': [], 'A*': []}
+        avg_path_len = {'A* w/ EARL': 0, 'A*': 0}
         reconfigurations = self.earl.get_reconfigurations(problem_instance)
 
         for _ in range(num_episodes):
@@ -75,4 +76,4 @@ if __name__ == '__main__':
         avg_path_len = driver.act(problem_instance, num_episodes)
         metrics += [avg_path_len]
     
-    print(metrics)
+    plot_metrics(problem_list, metrics)

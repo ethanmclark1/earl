@@ -274,6 +274,8 @@ class EARL:
         for reconfigruation in reconfigurations:
             row = reconfigruation // self.num_cols
             col = reconfigruation % self.num_cols
+            if desc[row, col] == b'S' or desc[row, col] == b'G':
+                continue
             desc[row, col] = b'T'
         
         return desc
