@@ -17,7 +17,7 @@ class EARL:
     def __init__(self, env, num_obstacles):
         self._init_hyperparams()
         
-        self.max_actions = 5
+        self.max_actions = 6
         self.action_set = set()
         self.mapping = {'F': 0, 'H': 1, 'S': 2, 'G': 3, 'T': 4}
                 
@@ -267,6 +267,7 @@ class EARL:
             reconfigurations = self._generate_reconfigurations(problem_instance)
             self._save(problem_instance, reconfigurations)
         
+        print(f'Reconfigurations for {problem_instance.capitalize()} problem instance: {reconfigurations}\n')
         return reconfigurations
     
     # Apply reconfigurations to task environment
