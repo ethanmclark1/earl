@@ -8,7 +8,7 @@ from agents.utils.ea import EA
 from agents.utils.network import DuelingDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
-class EARL(EA):
+class RL(EA):
     def __init__(self, env, num_obstacles):
         super().__init__(env, num_obstacles)
         self._init_hyperparams()
@@ -62,12 +62,16 @@ class EARL(EA):
             done = False
             num_action = 0
             state = start_state
+            action_sequence = np.array([0] * self.max_actions)
             while not done:
                 num_action += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
+                onehot_state = np.hstack((onehot_state, action_sequence))
                 action = self._select_action(onehot_state)
+                action_sequence[num_action - 1] = action
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
+                onehot_next_state = np.hstack((onehot_next_state, action_sequence))
                 self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 state = next_state
             
@@ -114,14 +118,18 @@ class EARL(EA):
         for _ in range(self.num_episodes):
             done = False
             action_lst = []
-            num_actions = 0
+            num_action = 0
             state = start_state
+            action_sequence = np.array([0] * self.max_actions)
             while not done:
-                num_actions += 1
+                num_action += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
+                onehot_state = np.hstack((onehot_state, action_sequence))
                 action = self._select_action(onehot_state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_actions)
+                action_sequence[num_action - 1] = action
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
+                onehot_next_state = np.hstack((onehot_next_state, action_sequence))
                 self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 loss, td_error, tree_idxs = self._learn()
                 state = next_state
@@ -145,11 +153,11 @@ class EARL(EA):
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        self._init_wandb(problem_instance)
+        # self._init_wandb(problem_instance)
         
         self.epsilon = self.epsilon_start
-        self.buffer = PrioritizedReplayBuffer(self.state_dims, 1, self.memory_size)
-        self.dqn = DuelingDQN(self.state_dims, self.num_actions, self.alpha)
+        self.buffer = PrioritizedReplayBuffer(self.state_dims+self.max_actions, 1, self.memory_size)
+        self.dqn = DuelingDQN(self.state_dims+self.max_actions, self.num_actions, self.alpha)
         self.target_dqn = copy.deepcopy(self.dqn)
         
         start_state = self._convert_state(problems.desc)

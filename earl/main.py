@@ -4,6 +4,7 @@ import numpy as np
 import networkx as nx
 import gymnasium as gym
 
+from agents.rl import RL
 from agents.earl import EARL
 from plotter import plot_metrics
 from arguments import get_arguments
@@ -19,8 +20,21 @@ class Driver:
         
         self.num_cols = self.env.unwrapped.ncol
         self.num_obstacles = num_obstacles
+        self.rl = RL(self.env, num_obstacles)
         self.earl = EARL(self.env, num_obstacles)
         
+    def retrieve_modifications(self, problem_instance):
+        approaches = ['rl', 'earl']
+        modification_set = {approach: None for approach in approaches}
+        
+        for idx, name in enumerate(approaches):
+            approach = getattr(self, name)
+            if hasattr(approach, 'get_adaptations'):
+                modification_set[name] = getattr(self, approaches[idx]).get_adaptations(problem_instance)
+            
+        return modification_set
+    
+    # Make graph for A* search
     def _make_graph(self, desc):
         graph = nx.grid_graph(dim=(self.num_cols, self.num_cols))
         for i in range(self.num_cols):
@@ -43,18 +57,18 @@ class Driver:
         
         return graph, start, goal, transporter
     
-    def act(self, problem_instance, num_episodes):
-        path_len = {'A* w/ EARL': [], 'A*': []}
-        avg_path_len = {'A* w/ EARL': 0, 'A*': 0}
-        reconfigurations = self.earl.get_reconfigurations(problem_instance)
-
+    def act(self, problem_instance, modification_set, num_episodes):
+        path_len = {'A* w/ EARL': [], 'A* w/ RL': []}
+        avg_path_len = {'A* w/ EARL': 0, 'A* w/ RL': 0}
+        
         for _ in range(num_episodes):
             desc = problems.get_instantiated_desc(problem_instance, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
-            reconfigured_desc = self.earl.get_reconfigured_env(tmp_desc, reconfigurations)
+            rl_desc = self.rl.get_adapted_env(tmp_desc, modification_set['rl'])
+            earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
             
             for approach in path_len.keys():
-                current_desc = desc if approach == 'A*' else reconfigured_desc
+                current_desc = rl_desc if approach == 'A* w/ RL' else earl_desc
                 graph, start, goal, transporter = self._make_graph(current_desc)
                 path = set(nx.astar_path(graph, start, goal))
                 path -= transporter
@@ -73,7 +87,8 @@ if __name__ == '__main__':
     num_episodes = 10000
     problem_list = problems.get_problem_list()
     for problem_instance in problem_list:
-        avg_path_len = driver.act(problem_instance, num_episodes)
+        modification_set = driver.retrieve_modifications(problem_instance)
+        avg_path_len = driver.act(problem_instance, modification_set, num_episodes)
         metrics += [avg_path_len]
     
     plot_metrics(problem_list, metrics)
