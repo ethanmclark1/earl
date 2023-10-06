@@ -107,7 +107,7 @@ class EARL(EA):
     # Train the child model on a given problem instance
     def _train(self, problem_instance, start_state):
         losses = []
-        returns = []
+        rewards = []
         best_actions = None
         best_reward = -np.inf
         
@@ -131,17 +131,17 @@ class EARL(EA):
             self._decrement_exploration()
             
             losses.append(loss)
-            returns.append(reward)
+            rewards.append(reward)
             avg_loss = np.mean(losses[-100:])
-            avg_returns = np.mean(returns[-100:])
+            avg_rewards = np.mean(rewards[-100:])
             wandb.log({"Average Value Loss": avg_loss})
-            wandb.log({"Average Returns": avg_returns})
+            wandb.log({"Average Rewards": avg_rewards})
             
             if reward > best_reward:
                 best_actions = action_lst
                 best_reward = reward
                 
-        return best_actions, best_reward, losses, returns
+        return best_actions, best_reward, losses, rewards
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
@@ -154,10 +154,10 @@ class EARL(EA):
         
         start_state = self._convert_state(problems.desc)
         self._populate_buffer(problem_instance, start_state)
-        best_actions, best_reward, losses, returns = self._train(problem_instance, start_state)
+        best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
         wandb.log({'Final Actions': best_actions})
         wandb.finish()
         
-        return best_actions
+        return best_actions, losses, rewards
