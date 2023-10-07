@@ -154,7 +154,7 @@ class RL(EA):
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        # self._init_wandb(problem_instance)
+        self._init_wandb(problem_instance)
         
         self.epsilon = self.epsilon_start
         self.buffer = MultiInputPER(self.state_dims, self.action_dims, 1, self.memory_size)
