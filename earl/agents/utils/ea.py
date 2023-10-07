@@ -115,6 +115,7 @@ class EA:
             adaptations, losses, rewards = self._generate_adaptations(problem_instance)
             self._save(approach, problem_instance, adaptations)
         
+        print(f'Adaptations for {problem_instance.capitalize()} problem instance:\n{adaptations}\n')
         return adaptations, losses, rewards
     
     # Apply adaptations to task environment
