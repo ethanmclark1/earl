@@ -1,5 +1,6 @@
 import os
 import copy
+import wandb
 import pickle
 import problems
 import numpy as np
@@ -41,6 +42,11 @@ class EA:
         with open(file_path, 'rb') as f:
             adaptation = pickle.load(f)
         return adaptation
+    
+    def _init_wandb(self, problem_instance):
+        wandb.init(project='ma-cdl', entity='ethanmclark1', name=f'{self.__class__.__name__}/{problem_instance.capitalize()}')
+        config = wandb.config
+        return config
         
     # Convert map description to encoded array
     def _convert_state(self, state):

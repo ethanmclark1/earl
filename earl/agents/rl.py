@@ -31,8 +31,7 @@ class RL(EA):
         self.record_freq = self.num_episodes // num_records
         
     def _init_wandb(self, problem_instance):
-        wandb.init(project='earl', entity='ethanmclark1', name=problem_instance.capitalize())
-        config = wandb.config
+        config = super()._init_wandb(problem_instance)
         config.tau = self.tau
         config.alpha = self.alpha
         config.gamma = self.gamma 
