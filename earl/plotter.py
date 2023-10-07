@@ -42,3 +42,6 @@ def plot_metrics(problem_instances, all_metrics):
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             plt.savefig(f'{problem_dir}/{metric}.png')
             plt.clf()
+            
+        for i in range(len(all_metrics)):
+            print(f'{problem_instances[i]} {metric}: {all_metrics[i][metric]}')
