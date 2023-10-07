@@ -44,7 +44,7 @@ class EA:
         return adaptation
     
     def _init_wandb(self, problem_instance):
-        wandb.init(project='ma-cdl', entity='ethanmclark1', name=f'{self.__class__.__name__}/{problem_instance.capitalize()}')
+        wandb.init(project='earl', entity='ethanmclark1', name=f'{self.__class__.__name__}/{problem_instance.capitalize()}')
         config = wandb.config
         return config
         
