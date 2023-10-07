@@ -97,3 +97,66 @@ class PrioritizedReplayBuffer:
 
             self.tree.update(data_idx, priority)
             self.max_priority = max(self.max_priority, priority)
+            
+            
+class MultiInputPER(PrioritizedReplayBuffer):
+    def __init__(self, state_size, action_sequence_size, action_size, buffer_size, epsilon=1e-2, alpha=0.1, beta=0.1, beta_increment=1e-3): 
+        super(MultiInputPER, self).__init__(state_size, action_size, buffer_size, epsilon, alpha, beta, beta_increment)
+        
+        self.action_sequence = torch.empty(buffer_size, action_sequence_size, dtype=torch.float)
+        self.next_action_sequence = torch.empty(buffer_size, action_sequence_size, dtype=torch.float)
+        
+    def add(self, transition):
+        # Add with maximum priority to ensure that every transition is sampled at least once
+        self.tree.add(self.max_priority, self.count)
+        
+        state, action_sequence, action, reward, next_state, next_action_sequence, done = transition
+
+        self.state[self.count] = torch.as_tensor(state)
+        self.action_sequence[self.count] = torch.as_tensor(action_sequence)
+        self.action[self.count] = torch.as_tensor(action)
+        self.reward[self.count] = torch.as_tensor(reward)
+        self.next_state[self.count] = torch.as_tensor(next_state)
+        self.next_action_sequence[self.count] = torch.as_tensor(next_action_sequence)
+        self.done[self.count] = torch.as_tensor(done)
+
+        self.count = (self.count + 1) % self.size
+        self.real_size = min(self.size, self.real_size + 1)
+
+    # Sample batch of transitions with importance sampling weights
+    def sample(self, batch_size):
+        self.beta = min(1., self.beta + self.beta_increment)
+        
+        sample_idxs, tree_idxs = [], []
+        priorities = torch.empty(batch_size, 1, dtype=torch.float)
+
+        segment = self.tree.total / batch_size
+        for i in range(batch_size):
+            a, b = segment * i, segment * (i + 1)
+
+            cumsum = random.uniform(a, b)
+
+            tree_idx, priority, sample_idx = self.tree.get(cumsum)
+
+            priorities[i] = priority
+            tree_idxs.append(tree_idx)
+            sample_idxs.append(sample_idx)
+
+        probs = priorities / self.tree.total
+
+        weights = (self.real_size * probs) ** -self.beta
+
+    
+        weights = weights / weights.max()
+
+        batch = (
+            self.state[sample_idxs],
+            self.action_sequence[sample_idxs],
+            self.action[sample_idxs],
+            self.reward[sample_idxs],
+            self.next_state[sample_idxs],
+            self.next_action_sequence[sample_idxs],
+            self.done[sample_idxs]
+        )
+        
+        return batch, weights, tree_idxs

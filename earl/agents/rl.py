@@ -5,8 +5,9 @@ import problems
 import numpy as np
 
 from agents.utils.ea import EA
-from agents.utils.network import DuelingDQN
-from agents.utils.replay_buffer import PrioritizedReplayBuffer
+from agents.utils.network import MultiInputDuelingDQN
+from agents.utils.replay_buffer import MultiInputPER
+
 
 class RL(EA):
     def __init__(self, env, num_obstacles):
@@ -15,6 +16,7 @@ class RL(EA):
                 
         self.dqn = None
         self.buffer = None
+        self.action_dims = self.env.observation_space.n * self.max_actions
     
     def _init_hyperparams(self):
         num_records = 10
@@ -46,12 +48,12 @@ class RL(EA):
         self.epsilon *= self.epsilon_decay
         self.epsilon = max(0.01, self.epsilon)
     
-    def _select_action(self, onehot_state):
+    def _select_action(self, onehot_state, onehot_action_sequence):
         with torch.no_grad():
             if self.rng.random() < self.epsilon:
                 action = self.rng.integers(self.num_actions)
             else:
-                q_vals = self.dqn(torch.FloatTensor(onehot_state))
+                q_vals = self.dqn(torch.FloatTensor(onehot_state), torch.FloatTensor(onehot_action_sequence))
                 action = torch.argmax(q_vals).item()
         return action
     
@@ -61,31 +63,31 @@ class RL(EA):
             done = False
             num_action = 0
             state = start_state
-            action_sequence = np.array([0] * self.max_actions)
+            onehot_action_sequence = np.array([0] * self.action_dims)
             while not done:
                 num_action += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                onehot_state = np.hstack((onehot_state, action_sequence))
-                action = self._select_action(onehot_state)
-                action_sequence[num_action - 1] = action
+                action = self._select_action(onehot_state, onehot_action_sequence)
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
-                onehot_next_state = np.hstack((onehot_next_state, action_sequence))
-                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
+                onehot_next_action_sequence = onehot_action_sequence.copy()
+                onehot_next_action_sequence[(num_action-1)*64 + action] = 1
+                self.buffer.add((onehot_state, onehot_action_sequence, action, reward, onehot_next_state, onehot_next_action_sequence, done))
                 state = next_state
+                onehot_action_sequence = onehot_next_action_sequence
             
     def _learn(self):    
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
-        state, action, reward, next_state, done = batch
+        state, action_sequence, action, reward, next_state, next_action_sequence, done = batch
         
-        q_values = self.dqn(state)
+        q_values = self.dqn(state, action_sequence)
         q = q_values.gather(1, action.long()).view(-1)
 
         # Select actions using online network
-        next_q_values = self.dqn(next_state)
+        next_q_values = self.dqn(next_state, next_action_sequence)
         next_actions = next_q_values.max(1)[1].detach()
         # Evaluate actions using target network to prevent overestimation bias
-        target_next_q_values = self.target_dqn(next_state)
+        target_next_q_values = self.target_dqn(next_state, next_action_sequence)
         next_q = target_next_q_values.gather(1, next_actions.unsqueeze(1)).view(-1).detach()
         
         q_hat = reward + (1 - done) * self.gamma * next_q
@@ -119,19 +121,19 @@ class RL(EA):
             action_lst = []
             num_action = 0
             state = start_state
-            action_sequence = np.array([0] * self.max_actions)
+            onehot_action_sequence = np.array([0] * self.action_dims)
             while not done:
                 num_action += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                onehot_state = np.hstack((onehot_state, action_sequence))
-                action = self._select_action(onehot_state)
-                action_sequence[num_action - 1] = action
+                action = self._select_action(onehot_state, onehot_action_sequence)
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
-                onehot_next_state = np.hstack((onehot_next_state, action_sequence))
-                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
+                onehot_next_action_sequence = onehot_action_sequence.copy()
+                onehot_next_action_sequence[(num_action-1)*64 + action] = 1
+                self.buffer.add((onehot_state, onehot_action_sequence, action, reward, onehot_next_state, onehot_next_action_sequence, done))
                 loss, td_error, tree_idxs = self._learn()
                 state = next_state
+                onehot_action_sequence = onehot_next_action_sequence
                 action_lst.append(action)
             
             self.buffer.update_priorities(tree_idxs, td_error)
@@ -152,11 +154,11 @@ class RL(EA):
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        self._init_wandb(problem_instance)
+        # self._init_wandb(problem_instance)
         
         self.epsilon = self.epsilon_start
-        self.buffer = PrioritizedReplayBuffer(self.state_dims+self.max_actions, 1, self.memory_size)
-        self.dqn = DuelingDQN(self.state_dims+self.max_actions, self.num_actions, self.alpha)
+        self.buffer = MultiInputPER(self.state_dims, self.action_dims, 1, self.memory_size)
+        self.dqn = MultiInputDuelingDQN(self.state_dims, self.action_dims, self.num_actions, self.alpha)
         self.target_dqn = copy.deepcopy(self.dqn)
         
         start_state = self._convert_state(problems.desc)
