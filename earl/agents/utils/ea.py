@@ -104,17 +104,18 @@ class EA:
     
     # Get adaptations for a given problem instance
     def get_adaptations(self, problem_instance):
+        losses = None
+        rewards = None
         approach = self.__class__.__name__
         try:
             adaptations = self._load(approach, problem_instance)
         except FileNotFoundError:
             print(f'No stored {approach} adaptation for {problem_instance.capitalize()} problem instance.')
             print('Generating new adaptation...\n')
-            adaptations = self._generate_adaptations(problem_instance)
+            adaptations, losses, rewards = self._generate_adaptations(problem_instance)
             self._save(approach, problem_instance, adaptations)
         
-        print(f'Adaptations for {problem_instance.capitalize()} problem instance: {adaptations}\n')
-        return adaptations
+        return adaptations, losses, rewards
     
     # Apply adaptations to task environment
     def get_adapted_env(self, desc, adaptations):

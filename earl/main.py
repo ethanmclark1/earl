@@ -25,14 +25,18 @@ class Driver:
         
     def retrieve_modifications(self, problem_instance):
         approaches = ['rl', 'earl']
+        losses = {'A* w/ EARL': None, 'A* w/ RL': None}
+        rewards = {'A* w/ EARL': None, 'A* w/ RL': None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
             approach = getattr(self, name)
             if hasattr(approach, 'get_adaptations'):
-                modification_set[name] = getattr(self, approaches[idx]).get_adaptations(problem_instance)
+                modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance)
+                losses[list(losses.keys())[idx]] = loss
+                rewards[list(losses.keys())[idx]] = reward
             
-        return modification_set
+        return modification_set, losses, rewards
     
     # Make graph for A* search
     def _make_graph(self, desc):
@@ -59,13 +63,13 @@ class Driver:
     
     def act(self, problem_instance, modification_set, num_episodes):
         path_len = {'A* w/ EARL': [], 'A* w/ RL': []}
-        avg_path_len = {'A* w/ EARL': 0, 'A* w/ RL': 0}
+        avg_path_cost = {'A* w/ EARL': 0, 'A* w/ RL': 0}
         
         for _ in range(num_episodes):
             desc = problems.get_instantiated_desc(problem_instance, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
-            rl_desc = self.rl.get_adapted_env(tmp_desc, modification_set['rl'])
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
+            rl_desc = self.rl.get_adapted_env(tmp_desc, modification_set['rl'])
             
             for approach in path_len.keys():
                 current_desc = rl_desc if approach == 'A* w/ RL' else earl_desc
@@ -74,21 +78,25 @@ class Driver:
                 path -= transporter
                 path_len[approach] += [len(path)]
                 
-        avg_path_len['A*'] = np.mean(path_len['A*'])
-        avg_path_len['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
-        return avg_path_len
+        avg_path_cost['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
+        avg_path_cost['A* w/ RL'] = np.mean(path_len['A* w/ RL'])
+        return avg_path_cost
     
 
 if __name__ == '__main__':
     num_obstacles, render_mode = get_arguments()
     driver = Driver(num_obstacles, render_mode)    
     
-    metrics = []
+    all_metrics = []
     num_episodes = 10000
     problem_list = problems.get_problem_list()
     for problem_instance in problem_list:
-        modification_set = driver.retrieve_modifications(problem_instance)
-        avg_path_len = driver.act(problem_instance, modification_set, num_episodes)
-        metrics += [avg_path_len]
+        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance)
+        avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
+        all_metrics.append({
+            'avg_path_cost': avg_path_cost,
+            'losses': losses,
+            'rewards': rewards
+        })
     
-    plot_metrics(problem_list, metrics)
+    plot_metrics(problem_list, all_metrics)
