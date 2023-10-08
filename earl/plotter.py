@@ -35,6 +35,7 @@ def plot_metrics(problem_instances, all_metrics):
                 plt.plot(epochs, earl, label='Our Approach')
                 plt.plot(epochs, rl, label='A* w/ RL')
                 plt.xlabel('Epochs')
+                plt.ylim(-9, -4 if metric == 'rewards' else 0, 0.02)
                 
             plt.title(f'{problem_instance} {name}')
             plt.ylabel(name)

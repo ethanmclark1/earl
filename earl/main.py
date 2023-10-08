@@ -69,6 +69,7 @@ class Driver:
             desc = problems.get_instantiated_desc(problem_instance, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
+            tmp_desc = copy.deepcopy(desc)
             rl_desc = self.rl.get_adapted_env(tmp_desc, modification_set['rl'])
             
             for approach in path_len.keys():
