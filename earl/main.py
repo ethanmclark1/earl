@@ -23,18 +23,16 @@ class Driver:
         self.rl = RL(self.env, num_obstacles)
         self.earl = EARL(self.env, num_obstacles)
         
-    def retrieve_modifications(self, problem_instance):
-        approaches = ['rl', 'earl']
+    def retrieve_modifications(self, problem_instance, affinity_instance):
+        approaches = ['earl', 'rl']
         losses = {'A* w/ EARL': None, 'A* w/ RL': None}
         rewards = {'A* w/ EARL': None, 'A* w/ RL': None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
-            approach = getattr(self, name)
-            if hasattr(approach, 'get_adaptations'):
-                modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance)
-                losses[list(losses.keys())[idx]] = loss
-                rewards[list(losses.keys())[idx]] = reward
+            modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance, affinity_instance)
+            losses[list(losses.keys())[idx]] = loss
+            rewards[list(losses.keys())[idx]] = reward
             
         return modification_set, losses, rewards
     
@@ -61,12 +59,12 @@ class Driver:
         
         return graph, start, goal, transporter
     
-    def act(self, problem_instance, modification_set, num_episodes):
+    def act(self, problem_instance, affinity_instance, modification_set, num_episodes):
         path_len = {'A* w/ EARL': [], 'A* w/ RL': []}
         avg_path_cost = {'A* w/ EARL': 0, 'A* w/ RL': 0}
         
         for _ in range(num_episodes):
-            desc = problems.get_instantiated_desc(problem_instance, self.num_obstacles)
+            desc = problems.get_instantiated_desc(problem_instance, affinity_instance, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
             tmp_desc = copy.deepcopy(desc)
@@ -91,9 +89,10 @@ if __name__ == '__main__':
     all_metrics = []
     num_episodes = 10000
     problem_list = problems.get_problem_list()
-    for problem_instance in problem_list:
-        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance)
-        avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
+    affinity_list = problems.get_affinity_list()
+    for problem_instance, affinity_instance in zip(problem_list, affinity_list):
+        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance, affinity_instance)
+        avg_path_cost = driver.act(problem_instance, affinity_instance, modification_set, num_episodes)
         all_metrics.append({
             'avg_path_cost': avg_path_cost,
             'losses': losses,

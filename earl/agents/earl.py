@@ -11,31 +11,17 @@ from agents.utils.replay_buffer import PrioritizedReplayBuffer
 class EARL(EA):
     def __init__(self, env, num_obstacles):
         super().__init__(env, num_obstacles)
-        self._init_hyperparams()
                 
         self.dqn = None
         self.buffer = None
-    
-    def _init_hyperparams(self):
-        num_records = 10
         
-        self.tau = 5e-3
-        self.alpha = 1e-4
-        self.gamma = 0.99
-        self.batch_size = 256
-        self.memory_size = 10000
-        self.epsilon_start = 1.0
-        self.num_episodes = 5000
-        self.dummy_episodes = 200
-        self.epsilon_decay = 0.9997
-        self.record_freq = self.num_episodes // num_records
-        
-    def _init_wandb(self, problem_instance):
-        config = super()._init_wandb(problem_instance)
+    def _init_wandb(self, problem_instance, affinity_instance):
+        config = super()._init_wandb(problem_instance, affinity_instance)
         config.tau = self.tau
         config.alpha = self.alpha
         config.epsilon = self.epsilon_start
         config.batch_size = self.batch_size
+        config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay
@@ -55,7 +41,7 @@ class EARL(EA):
         return action
     
     # Populate buffer with dummy transitions
-    def _populate_buffer(self, problem_instance, start_state):
+    def _populate_buffer(self, problem_instance, affinity_instance, start_state):
         for _ in range(self.dummy_episodes):
             done = False
             num_action = 0
@@ -64,7 +50,7 @@ class EARL(EA):
                 num_action += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
                 action = self._select_action(onehot_state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
                 self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 state = next_state
@@ -103,7 +89,7 @@ class EARL(EA):
         return loss.item(), td_error.numpy(), tree_idxs
     
     # Train the child model on a given problem instance
-    def _train(self, problem_instance, start_state):
+    def _train(self, problem_instance, affinity_instance, start_state):
         losses = []
         rewards = []
         best_actions = None
@@ -118,7 +104,7 @@ class EARL(EA):
                 num_actions += 1
                 onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
                 action = self._select_action(onehot_state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_actions)
+                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_actions)
                 onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
                 self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
                 loss, td_error, tree_idxs = self._learn()
@@ -142,8 +128,8 @@ class EARL(EA):
         return best_actions, best_reward, losses, rewards
     
     # Generate optimal adaptation for a given problem instance
-    def _generate_adaptations(self, problem_instance):
-        self._init_wandb(problem_instance)
+    def _generate_adaptations(self, problem_instance, affinity_instance):
+        # self._init_wandb(problem_instance, affinity_instance)
         
         self.epsilon = self.epsilon_start
         self.buffer = PrioritizedReplayBuffer(self.state_dims, 1, self.memory_size)
@@ -151,8 +137,8 @@ class EARL(EA):
         self.target_dqn = copy.deepcopy(self.dqn)
         
         start_state = self._convert_state(problems.desc)
-        self._populate_buffer(problem_instance, start_state)
-        best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
+        self._populate_buffer(problem_instance, affinity_instance, start_state)
+        best_actions, best_reward, losses, rewards = self._train(problem_instance, affinity_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
         wandb.log({'Final Actions': best_actions})
