@@ -1,6 +1,16 @@
 import copy
 import numpy as np
 
+desc = [
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+    "FFFFFFFF",
+]
 
 problems = {
     'cross': {
@@ -41,27 +51,41 @@ problems = {
     }
 }
 
-
-desc = [
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-]
-
 def get_problem_list():
     return list(problems.keys())
 
-def get_entity_positions(problem_instance, num_obstacles):
-    obstacle_constr, objective_constr = problems[problem_instance].values()
-    start_idx, goal_idx = np.random.choice(range(len(objective_constr)), size=2, replace=False)
-    start = objective_constr[start_idx]
-    goal = objective_constr[goal_idx]
+def get_affinity_list():
+    return ['nearest', 'furthest', 'random']
+
+def get_affinity_distribution(affinity_instance, start, objective_constr):
+    def euclid_dist(point1, point2):
+        return ((point1[0]-point2[0])**2 + (point1[1]-point2[1])**2) ** 0.5
     
+    if affinity_instance != 'random':
+        reversed_order = True if affinity_instance == 'furthest' else False
+        sorted_coords = sorted(objective_constr, key=lambda x: euclid_dist(start, x), reverse=reversed_order)
+        sorted_coords = sorted_coords[1:]
+        n = len(sorted_coords)
+        r = 0.75
+        prob = [r**i for i in range(n)]
+        total = sum(prob)
+        prob = [p/total for p in prob] 
+    else:
+        sorted_coords = copy.copy(objective_constr)
+        sorted_coords.remove(start)
+        prob = [1/len(sorted_coords)] * len(sorted_coords)
+    
+    return sorted_coords, prob    
+
+def get_entity_positions(problem_instance, affinity_instance, num_obstacles):
+    obstacle_constr, objective_constr = problems[problem_instance].values()
+    
+    start_idx = np.random.choice(range(len(objective_constr)))
+    start = objective_constr[start_idx]
+    sorted_coords, affinity_distr = get_affinity_distribution(affinity_instance, start, objective_constr)
+    goal_idx = np.random.choice(range(len(sorted_coords)), p=affinity_distr)
+    goal = sorted_coords[goal_idx]
+        
     obstacles = []
     count = num_obstacles
     while count > 0:
@@ -73,10 +97,10 @@ def get_entity_positions(problem_instance, num_obstacles):
     
     return start, goal, obstacles
     
-def get_instantiated_desc(problem_instance, num_obstacles):
+def get_instantiated_desc(problem_instance, affinity_instance, num_obstacles):
     instance_desc = copy.deepcopy(desc)
     
-    start, goal, obstacles = get_entity_positions(problem_instance, num_obstacles)
+    start, goal, obstacles = get_entity_positions(problem_instance, affinity_instance, num_obstacles)
         
     tmp_lst = list(instance_desc[start[0]])
     tmp_lst[start[1]] = 'S'
