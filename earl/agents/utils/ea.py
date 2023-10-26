@@ -59,15 +59,15 @@ class EA:
             adaptation = pickle.load(f)
         return adaptation
     
-    # def _init_wandb(self, problem_instance, affinity_instance):
-    #     wandb.init(
-    #         project='earl', 
-    #         entity='ethanmclark1', 
-    #         name=f'{self.__class__.__name__}/{problem_instance.capitalize()}/{affinity_instance.capitalize()}'
-    #         )
+    def _init_wandb(self, problem_instance, affinity_instance):
+        wandb.init(
+            project='earl', 
+            entity='ethanmclark1', 
+            name=f'{self.__class__.__name__}/{problem_instance.capitalize()}/{affinity_instance.capitalize()}'
+            )
         
-    #     config = wandb.config
-    #     return config
+        config = wandb.config
+        return config
         
     # Convert map description to encoded array
     def _convert_state(self, state):
@@ -115,11 +115,14 @@ class EA:
     def _step(self, problem_instance, affinity_instance, state, action, num_actions):
         reward = 0
         done = False   
+        action_success_rate = 0.8
         state = copy.deepcopy(state)
         prev_num_actions = len(self.action_set)
         
         next_state = state
-        next_state[action] = self.mapping['T']
+        # Add stochasticity to action execution
+        if action_success_rate > self.rng.random():
+            next_state[action] = self.mapping['T']
         self.action_set.add(action)
         
         if len(self.action_set) == prev_num_actions or num_actions == self.max_actions:
