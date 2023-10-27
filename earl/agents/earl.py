@@ -24,6 +24,7 @@ class EARL(EA):
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay
+        config.kl_coefficient = self.kl_coefficient
         config.dummy_episodes = self.dummy_episodes
     
     # Select action using Thompson Sampling
@@ -84,7 +85,7 @@ class EARL(EA):
             
             kl_divergence += torch.distributions.kl_divergence(posterior, prior).sum()
             
-        loss += 1e-2 * kl_divergence
+        loss += self.kl_coefficient * kl_divergence
         loss.backward()
         self.bdqn.optim.step()
                 
@@ -134,10 +135,10 @@ class EARL(EA):
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance, affinity_instance):
-        # self._init_wandb(problem_instance, affinity_instance)
+        self._init_wandb(problem_instance, affinity_instance)
         
         self.buffer = PrioritizedReplayBuffer(self.state_dims, 1, self.memory_size)
-        self.bdqn = BayesianDQN(self.state_dims, self.num_actions)
+        self.bdqn = BayesianDQN(self.state_dims, self.num_actions, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
         
         start_state = self._convert_state(problems.desc)

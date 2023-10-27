@@ -37,6 +37,7 @@ class EA:
         self.action_cost = -0.50
         self.num_episodes = 10000
         self.dummy_episodes = 200
+        self.kl_coefficient = 1e-2
         self.epsilon_decay = 0.9997
         self.configs_to_consider = 100
         self.record_freq = self.num_episodes // num_records

@@ -5,17 +5,17 @@ import problems
 import numpy as np
 
 from agents.utils.ea import EA
-from agents.utils.network import MultiInputDuelingDQN
 from agents.utils.replay_buffer import MultiInputPER
+from agents.utils.network import MultiInputBayesianDQN
 
 
 class RL(EA):
     def __init__(self, env, num_obstacles):
         super().__init__(env, num_obstacles)
                         
-        self.dqn = None
-        self.buffer = None
+        self.bdqn = None
         self.gamma = 0.99
+        self.buffer = None
         self.action_dims = self.env.observation_space.n ** 2
         
     def _init_wandb(self, problem_instance, affinity_instance):
@@ -23,25 +23,17 @@ class RL(EA):
         config.tau = self.tau
         config.alpha = self.alpha
         config.gamma = self.gamma 
-        config.epsilon = self.epsilon_start
         config.batch_size = self.batch_size
         config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
-        config.epsilon_decay = self.epsilon_decay
+        config.kl_coefficient = self.kl_coefficient
         config.dummy_episodes = self.dummy_episodes
-        
-    def _decrement_exploration(self):
-        self.epsilon *= self.epsilon_decay
-        self.epsilon = max(0.01, self.epsilon)
     
-    def _select_action(self, onehot_state, onehot_action_sequence):
+    def _select_action(self, onehot_state, onehot_action_sequence):    
         with torch.no_grad():
-            if self.rng.random() < self.epsilon:
-                action = self.rng.integers(self.num_actions)
-            else:
-                q_vals = self.dqn(torch.FloatTensor(onehot_state), torch.FloatTensor(onehot_action_sequence))
-                action = torch.argmax(q_vals).item()
+            q_values = self.bdqn(torch.FloatTensor(onehot_state), torch.FloatTensor(onehot_action_sequence))
+            action = torch.argmax(q_values).item()
         return action
     
     # Populate buffer with dummy transitions
@@ -67,11 +59,11 @@ class RL(EA):
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
         state, action_sequence, action, reward, next_state, next_action_sequence, done = batch
         
-        q_values = self.dqn(state, action_sequence)
+        q_values = self.bdqn(state, action_sequence)
         q = q_values.gather(1, action.long()).view(-1)
 
         # Select actions using online network
-        next_q_values = self.dqn(next_state, next_action_sequence)
+        next_q_values = self.bdqn(next_state, next_action_sequence)
         next_actions = next_q_values.max(1)[1].detach()
         # Evaluate actions using target network to prevent overestimation bias
         target_next_q_values = self.target_dqn(next_state, next_action_sequence)
@@ -84,14 +76,27 @@ class RL(EA):
         if weights is None:
             weights = torch.ones_like(q)
 
-        self.dqn.optim.zero_grad()
+        self.bdqn.optim.zero_grad()
         # Multiply by importance sampling weights to correct bias from prioritized replay
         loss = (weights * (q_hat - q) ** 2).mean()
+        
+        # Form of regularization to prevent posterior collapse
+        kl_divergence = 0
+        for layer in [self.bdqn.fc1, self.bdqn.fc2, self.bdqn.fc3]:
+            w_mu = layer.w_mu
+            w_rho = layer.w_rho
+            w_sigma = torch.log1p(torch.exp(w_rho))
+            posterior = torch.distributions.Normal(w_mu, w_sigma)
+            prior = torch.distributions.Normal(0, 1)
+            
+            kl_divergence += torch.distributions.kl_divergence(posterior, prior).sum()
+            
+        loss += self.kl_coefficient * kl_divergence
         loss.backward()
-        self.dqn.optim.step()
+        self.bdqn.optim.step()
                 
         # Update target network
-        for param, target_param in zip(self.dqn.parameters(), self.target_dqn.parameters()):
+        for param, target_param in zip(self.bdqn.parameters(), self.target_dqn.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
         
         return loss.item(), td_error.numpy(), tree_idxs
@@ -124,7 +129,6 @@ class RL(EA):
                 action_lst.append(action)
             
             self.buffer.update_priorities(tree_idxs, td_error)
-            self._decrement_exploration()
             
             losses.append(loss)
             rewards.append(reward)
@@ -143,10 +147,9 @@ class RL(EA):
     def _generate_adaptations(self, problem_instance, affinity_instance):
         self._init_wandb(problem_instance, affinity_instance)
         
-        self.epsilon = self.epsilon_start
         self.buffer = MultiInputPER(self.state_dims, self.action_dims, 1, self.memory_size)
-        self.dqn = MultiInputDuelingDQN(self.state_dims, self.action_dims, self.num_actions, self.alpha)
-        self.target_dqn = copy.deepcopy(self.dqn)
+        self.bdqn = MultiInputBayesianDQN(self.state_dims, self.action_dims, self.num_actions, self.alpha)
+        self.target_dqn = copy.deepcopy(self.bdqn)
         
         start_state = self._convert_state(problems.desc)
         self._populate_buffer(problem_instance, affinity_instance, start_state)
