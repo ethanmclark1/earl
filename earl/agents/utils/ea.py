@@ -33,13 +33,10 @@ class EA:
         self.alpha = 1e-4
         self.batch_size = 256
         self.memory_size = 10000
-        self.epsilon_start = 1.0
-        self.action_cost = -0.50
+        self.action_cost = -0.10
         self.num_episodes = 10000
-        self.dummy_episodes = 200
-        self.kl_coefficient = 1e-2
-        self.epsilon_decay = 0.9997
-        self.configs_to_consider = 100
+        self.kl_coefficient = 1e-4
+        self.configs_to_consider = 200
         self.record_freq = self.num_episodes // num_records
 
     def _save(self, approach, problem_instance, affinity_instance, adaptation):
@@ -143,11 +140,11 @@ class EA:
             adaptations = self._load(approach, problem_instance, affinity_instance)
         except FileNotFoundError:
             print(f'No stored {approach} adaptation for {problem_instance.capitalize()} problem instance combined with {affinity_instance.capitalize()} affinity instance.')
-            print('Generating new adaptation...\n')
+            print('Generating new adaptation...')
             adaptations, losses, rewards = self._generate_adaptations(problem_instance, affinity_instance)
             self._save(approach, problem_instance, affinity_instance, adaptations)
         
-        print(f'Adaptations for {problem_instance.capitalize()} problem instance combined with {affinity_instance} affinity instance:\n{adaptations}\n')
+        print(f'{approach} adaptations for {problem_instance.capitalize()} problem instance combined with {affinity_instance.capitalize()} affinity instance:\n{adaptations}\n')
         return adaptations, losses, rewards
     
     # Apply adaptations to task environment

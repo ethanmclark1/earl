@@ -8,6 +8,7 @@ from agents.utils.ea import EA
 from agents.utils.network import BayesianDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
+
 class EARL(EA):
     def __init__(self, env, num_obstacles):
         super().__init__(env, num_obstacles)
@@ -23,31 +24,14 @@ class EARL(EA):
         config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
-        config.epsilon_decay = self.epsilon_decay
         config.kl_coefficient = self.kl_coefficient
-        config.dummy_episodes = self.dummy_episodes
     
     # Select action using Thompson Sampling
     def _select_action(self, onehot_state):
         with torch.no_grad():
-            q_values = self.bdqn(torch.FloatTensor(onehot_state))
-            action = torch.argmax(q_values).item()
+            q_values_sample = self.bdqn(torch.FloatTensor(onehot_state))
+            action = torch.argmax(q_values_sample).item()
         return action
-    
-    # Populate buffer with dummy transitions
-    def _populate_buffer(self, problem_instance, affinity_instance, start_state):
-        for _ in range(self.dummy_episodes):
-            done = False
-            num_action = 0
-            state = start_state
-            while not done:
-                num_action += 1
-                onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                action = self._select_action(onehot_state)
-                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)
-                onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
-                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
-                state = next_state
     
     def _learn(self):    
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
@@ -142,7 +126,6 @@ class EARL(EA):
         self.target_dqn = copy.deepcopy(self.bdqn)
         
         start_state = self._convert_state(problems.desc)
-        self._populate_buffer(problem_instance, affinity_instance, start_state)
         best_actions, best_reward, losses, rewards = self._train(problem_instance, affinity_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})

@@ -64,7 +64,7 @@ def get_affinity_distribution(affinity_instance, start, objective_constr):
     if affinity_instance != 'random':
         reversed_order = True if affinity_instance == 'furthest' else False
         sorted_coords = sorted(objective_constr, key=lambda x: euclid_dist(start, x), reverse=reversed_order)
-        sorted_coords = sorted_coords[1:]
+        sorted_coords = sorted_coords[:-1] if reversed_order else sorted_coords[1:]
         n = len(sorted_coords)
         r = 0.75
         prob = [r**i for i in range(n)]
