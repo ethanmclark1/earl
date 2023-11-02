@@ -11,30 +11,30 @@ class BayesianLinear(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         
-        # mu and rho for weight and bias
-        # use rho instead of sigma because rho can take on any value in the real number line
+        # Mu and rho for weight and bias
+        # Use rho instead of sigma because rho can take on any value in the real number line
         self.w_mu = nn.Parameter(torch.Tensor(output_dim, input_dim).normal_(0, 0.01))
         self.w_rho = nn.Parameter(torch.Tensor(output_dim, input_dim).normal_(0, 0.01))
         self.b_mu = nn.Parameter(torch.Tensor(output_dim).normal_(0, 0.01))
         self.b_rho = nn.Parameter(torch.Tensor(output_dim).normal_(0, 0.01))
         
     def forward(self, x):
-        # generate Gaussian noise for weights and biases
+        # Generate Gaussian noise for weights and biases
         w_epsilon = torch.normal(0, 1, size=(self.output_dim, self.input_dim))
         b_epsilon = torch.normal(0, 1, size=(self.output_dim,))
 
-        # softplus function converts rho to sigma while ensuring sigma is positive
+        # Softplus function converts rho to sigma while ensuring sigma is positive
         w_sigma = torch.log1p(torch.exp(self.w_rho))
         b_sigma = torch.log1p(torch.exp(self.b_rho))
         
-        # reparameterization trick to get point estimate of weights and biases
+        # Reparameterization trick to get point estimate of weights and biases
         w = self.w_mu + w_sigma * w_epsilon
         b = self.b_mu + b_sigma * b_epsilon
         
         return F.linear(x, w, b)
     
 
-# uncertainty is encoded in the network weights and biases
+# Uncertainty is encoded in the network weights and biases
 class BayesianDQN(nn.Module):
     def __init__(self, input_dims, output_dims, lr):
         super(BayesianDQN, self).__init__()

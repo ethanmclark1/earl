@@ -15,8 +15,7 @@ desc = [
 problems = {
     'cross': {
         'obstacles': [
-            [(1,3),(2,3),(3,3),(4,3),(5,3),(6,3)],
-            [(3,1),(3,2),(3,3),(3,4),(3,5),(3,6)],
+            (1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),
             ],
         'houses': [
             (1,1),(1,2),(1,4),(1,6),(4,0),(4,2),(4,4),(4,6),(6,1),(6,6),(7,3)
@@ -24,8 +23,7 @@ problems = {
     },
     'gate': {
         'obstacles': [
-            [(0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3)],
-            [(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4)],
+            (0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4),
         ],
         'houses': [
             (0,2),(0,5),(1,0),(1,7),(2,1),(2,6),(3,2),(3,5),(5,0),(5,7),(6,1),(6,6),(7,2),(7,5)
@@ -33,17 +31,15 @@ problems = {
     },
     'snake': {
         'obstacles': [
-            [(0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6)],
-            [(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)]
-        ],
+            (0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)
+            ],
         'houses': [
             (0,0),(0,2),(0,5),(0,7),(2,2),(2,6),(4,3),(5,1),(5,5),(6,3),(7,0),(7,5),(7,7)
         ]
     },
     'diagonal': {
         'obstacles': [
-            [(0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6)],
-            [(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)]
+            (0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)
         ],
         'houses':[
             (0,1),(0,7),(1,0),(2,1),(2,3),(2,4),(2,6),(5,1),(5,6),(5,7),(6,2),(6,5)
@@ -57,6 +53,7 @@ def get_problem_list():
 def get_affinity_list():
     return ['nearest', 'furthest', 'random']
 
+# Probability of each start being matched with each goal
 def get_affinity_distribution(affinity_instance, start, objective_constr):
     def euclid_dist(point1, point2):
         return ((point1[0]-point2[0])**2 + (point1[1]-point2[1])**2) ** 0.5
@@ -85,15 +82,10 @@ def get_entity_positions(problem_instance, affinity_instance, num_obstacles):
     sorted_coords, affinity_distr = get_affinity_distribution(affinity_instance, start, objective_constr)
     goal_idx = np.random.choice(range(len(sorted_coords)), p=affinity_distr)
     goal = sorted_coords[goal_idx]
-        
-    obstacles = []
-    count = num_obstacles
-    while count > 0:
-        row_idx = count % len(obstacle_constr)
-        row_len = len(obstacle_constr[row_idx])
-        col_idx = np.random.choice(range(row_len))
-        obstacles += [obstacle_constr[row_idx][col_idx]]
-        count -= 1
+    
+    tmp_obs_constr = np.array(obstacle_constr)
+    obs_idx = np.random.choice(range(len(obstacle_constr)), size=num_obstacles, replace=False)
+    obstacles = tmp_obs_constr[obs_idx]
     
     return start, goal, obstacles
     

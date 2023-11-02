@@ -29,14 +29,15 @@ class EA:
     def _init_hyperparams(self):
         num_records = 10
 
-        self.tau = 5e-3
-        self.alpha = 1e-4
+        self.tau = 0.002
+        self.alpha = 0.007
         self.batch_size = 256
-        self.memory_size = 10000
-        self.action_cost = -0.10
-        self.num_episodes = 10000
-        self.kl_coefficient = 1e-4
-        self.configs_to_consider = 200
+        self.action_cost = -0.1
+        self.num_episodes = 5000
+        self.memory_size = 100000
+        self.kl_coefficient = 0.01
+        self.configs_to_consider = 500
+        self.action_success_rate = 0.75
         self.record_freq = self.num_episodes // num_records
 
     def _save(self, approach, problem_instance, affinity_instance, adaptation):
@@ -67,7 +68,7 @@ class EA:
         config = wandb.config
         return config
         
-    # Convert map description to encoded array
+    # Convert map description to an encoded array
     def _convert_state(self, state):
         flattened_state = np.array(list(chain.from_iterable(state)))
         numerical_state = np.vectorize(self.mapping.get)(flattened_state)
@@ -89,14 +90,14 @@ class EA:
             desc[start] = self.mapping['S']
             desc[goal] = self.mapping['G']
             for obstacle in obstacles:
-                if desc[obstacle] != self.mapping['T']:
-                    desc[obstacle] = self.mapping['H']
+                if desc[obstacle[0], obstacle[1]] != self.mapping['T']:
+                    desc[obstacle[0], obstacle[1]] = self.mapping['H']
             
             for i in range(self.num_cols):
                 for j in range(self.num_cols):
                     cell_value = desc[i, j]
                     for neighbor in graph.neighbors((i, j)):
-                        weight = 6
+                        weight = 5
                         if cell_value == self.mapping['H']:
                             weight = 100
                         elif cell_value == self.mapping['T']:
@@ -113,13 +114,12 @@ class EA:
     def _step(self, problem_instance, affinity_instance, state, action, num_actions):
         reward = 0
         done = False   
-        action_success_rate = 0.8
         state = copy.deepcopy(state)
         prev_num_actions = len(self.action_set)
         
         next_state = state
         # Add stochasticity to action execution
-        if action_success_rate > self.rng.random():
+        if self.action_success_rate > self.rng.random():
             next_state[action] = self.mapping['T']
         self.action_set.add(action)
         

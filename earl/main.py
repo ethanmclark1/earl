@@ -6,6 +6,7 @@ import gymnasium as gym
 
 from agents.rl import RL
 from agents.earl import EARL
+from itertools import product
 from plotter import plot_metrics
 from arguments import get_arguments
 
@@ -90,7 +91,7 @@ if __name__ == '__main__':
     num_episodes = 10000
     problem_list = problems.get_problem_list()
     affinity_list = problems.get_affinity_list()
-    for problem_instance, affinity_instance in zip(problem_list, affinity_list):
+    for problem_instance, affinity_instance in product(problem_list, affinity_list):
         modification_set, losses, rewards = driver.retrieve_modifications(problem_instance, affinity_instance)
         avg_path_cost = driver.act(problem_instance, affinity_instance, modification_set, num_episodes)
         all_metrics.append({

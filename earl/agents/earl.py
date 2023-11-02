@@ -25,7 +25,9 @@ class EARL(EA):
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
         config.kl_coefficient = self.kl_coefficient
-    
+        config.configs_to_consider = self.configs_to_consider
+        config.action_success_rate = self.action_success_rate
+
     # Select action using Thompson Sampling
     def _select_action(self, onehot_state):
         with torch.no_grad():
@@ -108,8 +110,8 @@ class EARL(EA):
             rewards.append(reward)
             avg_loss = np.mean(losses[-100:])
             avg_rewards = np.mean(rewards[-100:])
-            wandb.log({"Average Value Loss": avg_loss})
-            wandb.log({"Average Rewards": avg_rewards})
+            wandb.log({"Average Loss": avg_loss})
+            wandb.log({"Average Reward": avg_rewards})
             
             if reward > best_reward:
                 best_actions = action_lst
