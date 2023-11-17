@@ -1,7 +1,6 @@
 import copy
 import torch
 import wandb
-import problems
 import numpy as np
 
 from agents.utils.ea import EA
@@ -10,12 +9,14 @@ from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 
 class EARL(EA):
-    def __init__(self, env, num_obstacles):
-        super().__init__(env, num_obstacles)
+    def __init__(self, env, grid_size, num_obstacles):
+        super(EARL, self).__init__(env, grid_size, num_obstacles)
                 
         self.bdqn = None
         self.buffer = None
-        
+        self.combinations = {}
+        self.memory_size = 100000
+
     def _init_wandb(self, problem_instance, affinity_instance):
         config = super()._init_wandb(problem_instance, affinity_instance)
         config.tau = self.tau
@@ -26,18 +27,34 @@ class EARL(EA):
         config.num_episodes = self.num_episodes
         config.kl_coefficient = self.kl_coefficient
         config.configs_to_consider = self.configs_to_consider
-        config.action_success_rate = self.action_success_rate
 
     # Select action using Thompson Sampling
-    def _select_action(self, onehot_state):
+    def _select_action(self, state):
         with torch.no_grad():
-            q_values_sample = self.bdqn(torch.FloatTensor(onehot_state))
+            state = torch.FloatTensor(state)
+            q_values_sample = self.bdqn(state)
             action = torch.argmax(q_values_sample).item()
         return action
     
+    # Retrieve all indices that match next_state
+    def _get_combination_idxs(self, next_state):
+        idxs = {}
+        counter = 0
+        for n_s in next_state:
+            combination = tuple(np.where(n_s == 4)[0])
+            if combination in self.buffer.indices.keys() and combination not in idxs.keys():
+                idxs[combination] = self.buffer.indices[combination]
+            else:
+                counter += 1 
+        
+        return idxs
+            
+    # TODO: Cluster action groups to represent commutativity
     def _learn(self):    
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
         state, action, reward, next_state, done = batch
+        
+        combination_idxs = self._get_combination_idxs(next_state)
         
         q_values = self.bdqn(state)
         q = q_values.gather(1, action.long()).view(-1)
@@ -90,44 +107,43 @@ class EARL(EA):
         
         for _ in range(self.num_episodes):
             done = False
-            action_lst = []
-            num_actions = 0
+            action_seq = []
+            num_action = 0
             state = start_state
             while not done:
-                num_actions += 1
-                onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                action = self._select_action(onehot_state)
-                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_actions)
-                onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
-                self.buffer.add((onehot_state, action, reward, onehot_next_state, done))
-                loss, td_error, tree_idxs = self._learn()
+                num_action += 1
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)
+                
+                self.buffer.add(state, action, reward, next_state, done)
                 state = next_state
-                action_lst.append(action)
+                action_seq.append(action)
             
+            loss, td_error, tree_idxs = self._learn()
             self.buffer.update_priorities(tree_idxs, td_error)
             
             losses.append(loss)
             rewards.append(reward)
-            avg_loss = np.mean(losses[-100:])
-            avg_rewards = np.mean(rewards[-100:])
+            avg_loss = np.mean(losses[self.sma_window:])
+            avg_rewards = np.mean(rewards[self.sma_window:])
             wandb.log({"Average Loss": avg_loss})
             wandb.log({"Average Reward": avg_rewards})
             
             if reward > best_reward:
-                best_actions = action_lst
+                best_actions = action_seq
                 best_reward = reward
                 
         return best_actions, best_reward, losses, rewards
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance, affinity_instance):
-        self._init_wandb(problem_instance, affinity_instance)
+        # self._init_wandb(problem_instance, affinity_instance)
         
-        self.buffer = PrioritizedReplayBuffer(self.state_dims, 1, self.memory_size)
-        self.bdqn = BayesianDQN(self.state_dims, self.num_actions, self.alpha)
+        self.bdqn = BayesianDQN(self.state_dims, self.action_dims, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
+        self.buffer = PrioritizedReplayBuffer(self.state_dims, self.memory_size)
         
-        start_state = self._convert_state(problems.desc)
+        start_state = np.array([0] * self.state_dims)
         best_actions, best_reward, losses, rewards = self._train(problem_instance, affinity_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})

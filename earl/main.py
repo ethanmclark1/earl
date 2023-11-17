@@ -4,28 +4,32 @@ import numpy as np
 import networkx as nx
 import gymnasium as gym
 
-from agents.rl import RL
-from agents.earl import EARL
-from itertools import product
 from plotter import plot_metrics
 from arguments import get_arguments
 
+from agents.rl import RL
+from agents.earl import EARL
+from agents.attention_neuron import AttentionNeuron
+
 
 class Driver:
-    def __init__(self, num_obstacles, render_mode):
+    def __init__(self, num_obstacles, grid_size, render_mode):
         self.env = gym.make(
             id='FrozenLake-v1', 
-            map_name='8x8', 
+            map_name=grid_size, 
             render_mode=render_mode
             )
         
+        self.grid_size = grid_size
+        # TODO: Add constraint on number of obstacles based on grid_size
+        
         self.num_cols = self.env.unwrapped.ncol
-        self.num_obstacles = num_obstacles
-        self.rl = RL(self.env, num_obstacles)
-        self.earl = EARL(self.env, num_obstacles)
+        self.rl = RL(self.env, grid_size, num_obstacles)
+        self.earl = EARL(self.env, grid_size, num_obstacles)
+        self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
     def retrieve_modifications(self, problem_instance, affinity_instance):
-        approaches = ['earl', 'rl']
+        approaches = ['rl', 'earl']
         losses = {'A* w/ EARL': None, 'A* w/ RL': None}
         rewards = {'A* w/ EARL': None, 'A* w/ RL': None}
         modification_set = {approach: None for approach in approaches}
@@ -44,9 +48,9 @@ class Driver:
             for j in range(self.num_cols):
                 cell_value = desc[i, j]
                 for neighbor in graph.neighbors((i, j)):
-                    weight = 6
+                    weight = 1
                     if cell_value == b'H':
-                        weight = 100
+                        weight = 1000
                     elif cell_value == b'T':
                         weight = 0
                     graph[(i, j)][neighbor]['weight'] = weight
@@ -65,7 +69,7 @@ class Driver:
         avg_path_cost = {'A* w/ EARL': 0, 'A* w/ RL': 0}
         
         for _ in range(num_episodes):
-            desc = problems.get_instantiated_desc(problem_instance, affinity_instance, self.num_obstacles)
+            desc = problems.get_instantiated_desc(problem_instance, affinity_instance, self.grid_size, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
             tmp_desc = copy.deepcopy(desc)
@@ -75,8 +79,7 @@ class Driver:
                 current_desc = rl_desc if approach == 'A* w/ RL' else earl_desc
                 graph, start, goal, transporter = self._make_graph(current_desc)
                 path = set(nx.astar_path(graph, start, goal))
-                path -= transporter
-                path_len[approach] += [len(path)]
+                path_len[approach] += [len(path - transporter)]
                 
         avg_path_cost['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
         avg_path_cost['A* w/ RL'] = np.mean(path_len['A* w/ RL'])
@@ -84,20 +87,22 @@ class Driver:
     
 
 if __name__ == '__main__':
-    num_obstacles, render_mode = get_arguments()
-    driver = Driver(num_obstacles, render_mode)    
+    grid_size, render_mode = get_arguments()
+    driver = Driver(grid_size, render_mode)    
     
     all_metrics = []
     num_episodes = 10000
-    problem_list = problems.get_problem_list()
-    affinity_list = problems.get_affinity_list()
-    for problem_instance, affinity_instance in product(problem_list, affinity_list):
-        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance, affinity_instance)
-        avg_path_cost = driver.act(problem_instance, affinity_instance, modification_set, num_episodes)
-        all_metrics.append({
-            'avg_path_cost': avg_path_cost,
-            'losses': losses,
-            'rewards': rewards
-        })
+    # problem_list = problems.get_problem_list()
+    # affinity_list = problems.get_affinity_list()
+    # for problem_instance, affinity_instance in product(problem_list, affinity_list):
+    problem_instance = 'snake'
+    affinity_instance = 'random'
+    modification_set, losses, rewards = driver.retrieve_modifications(problem_instance, affinity_instance)
+    avg_path_cost = driver.act(problem_instance, affinity_instance, modification_set, num_episodes)
+    all_metrics.append({
+        'avg_path_cost': avg_path_cost,
+        'losses': losses,
+        'rewards': rewards
+    })
     
-    plot_metrics(problem_list, all_metrics)
+    # plot_metrics(problem_list, affinity_list, all_metrics)

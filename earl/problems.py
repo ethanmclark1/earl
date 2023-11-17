@@ -1,49 +1,63 @@
 import copy
 import numpy as np
 
-desc = [
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-    "FFFFFFFF",
-]
+desc = {
+    '4x4': [
+        "FFFF",
+        "FFFF",
+        "FFFF",
+        "FFFF",
+        ],
+    '8x8': [
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        "FFFFFFFF",
+        ]
+}
 
+# TODO: Add in 4x4 problems
 problems = {
-    'cross': {
-        'obstacles': [
-            (1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),
+    '4x4': {
+        
+    },
+    '8x8': {
+        'cross': {
+            'obstacles': [
+                (1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),
+                ],
+            'houses': [
+                (1,1),(1,2),(1,4),(1,6),(4,0),(4,2),(4,4),(4,6),(6,1),(6,6),(7,3)
+                ]
+        },
+        'gate': {
+            'obstacles': [
+                (0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4),
             ],
-        'houses': [
-            (1,1),(1,2),(1,4),(1,6),(4,0),(4,2),(4,4),(4,6),(6,1),(6,6),(7,3)
+            'houses': [
+                (0,2),(0,5),(1,0),(1,7),(2,1),(2,6),(3,2),(3,5),(5,0),(5,7),(6,1),(6,6),(7,2),(7,5)
             ]
-    },
-    'gate': {
-        'obstacles': [
-            (0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4),
-        ],
-        'houses': [
-            (0,2),(0,5),(1,0),(1,7),(2,1),(2,6),(3,2),(3,5),(5,0),(5,7),(6,1),(6,6),(7,2),(7,5)
-        ]
-    },
-    'snake': {
-        'obstacles': [
-            (0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)
+        },
+        'snake': {
+            'obstacles': [
+                (0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)
+                ],
+            'houses': [
+                (0,0),(0,2),(0,5),(0,7),(2,2),(2,6),(4,3),(5,1),(5,5),(6,3),(7,0),(7,5),(7,7)
+            ]
+        },
+        'diagonal': {
+            'obstacles': [
+                (0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)
             ],
-        'houses': [
-            (0,0),(0,2),(0,5),(0,7),(2,2),(2,6),(4,3),(5,1),(5,5),(6,3),(7,0),(7,5),(7,7)
-        ]
-    },
-    'diagonal': {
-        'obstacles': [
-            (0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)
-        ],
-        'houses':[
-            (0,1),(0,7),(1,0),(2,1),(2,3),(2,4),(2,6),(5,1),(5,6),(5,7),(6,2),(6,5)
-        ]
+            'houses':[
+                (0,1),(0,7),(1,0),(2,1),(2,3),(2,4),(2,6),(5,1),(5,6),(5,7),(6,2),(6,5)
+            ]
+        }
     }
 }
 
@@ -63,7 +77,7 @@ def get_affinity_distribution(affinity_instance, start, objective_constr):
         sorted_coords = sorted(objective_constr, key=lambda x: euclid_dist(start, x), reverse=reversed_order)
         sorted_coords = sorted_coords[:-1] if reversed_order else sorted_coords[1:]
         n = len(sorted_coords)
-        r = 0.75
+        r = 0.65
         prob = [r**i for i in range(n)]
         total = sum(prob)
         prob = [p/total for p in prob] 
@@ -74,8 +88,8 @@ def get_affinity_distribution(affinity_instance, start, objective_constr):
     
     return sorted_coords, prob    
 
-def get_entity_positions(problem_instance, affinity_instance, num_obstacles):
-    obstacle_constr, objective_constr = problems[problem_instance].values()
+def get_entity_positions(problem_instance, affinity_instance, grid_size, num_obstacles):
+    obstacle_constr, objective_constr = problems[grid_size][problem_instance].values()
     
     start_idx = np.random.choice(range(len(objective_constr)))
     start = objective_constr[start_idx]
@@ -89,8 +103,8 @@ def get_entity_positions(problem_instance, affinity_instance, num_obstacles):
     
     return start, goal, obstacles
     
-def get_instantiated_desc(problem_instance, affinity_instance, num_obstacles):
-    instance_desc = copy.deepcopy(desc)
+def get_instantiated_desc(problem_instance, affinity_instance, grid_size, num_obstacles):
+    instance_desc = copy.deepcopy(desc[grid_size])
     
     start, goal, obstacles = get_entity_positions(problem_instance, affinity_instance, num_obstacles)
         

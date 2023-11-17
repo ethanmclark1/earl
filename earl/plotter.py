@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_metrics(problem_instances, all_metrics):
+def plot_metrics(problem_list, affinity_list, all_metrics):
     results_dir = 'results'
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)
@@ -15,7 +15,7 @@ def plot_metrics(problem_instances, all_metrics):
     metric_names = ['Average Path Cost', 'Losses', 'Reward']
 
     for metric, name in zip(metrics, metric_names):
-        for idx, problem_instance in enumerate(problem_instances):
+        for idx, problem_instance in enumerate(problem_list):
             problem_dir = f'{results_dir}/{problem_instance}'
             if not os.path.exists(problem_dir):
                 os.makedirs(problem_dir)
@@ -45,4 +45,4 @@ def plot_metrics(problem_instances, all_metrics):
             plt.clf()
             
         for i in range(len(all_metrics)):
-            print(f'{problem_instances[i]} {metric}: {all_metrics[i][metric]}')
+            print(f'{problem_list[i]} {metric}: {all_metrics[i][metric]}')

@@ -1,22 +1,21 @@
 import copy
 import torch
 import wandb
-import problems
 import numpy as np
 
 from agents.utils.ea import EA
-from agents.utils.replay_buffer import MultiInputPER
-from agents.utils.network import MultiInputBayesianDQN
+from agents.utils.network import BayesianDQN
+from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 
 class RL(EA):
-    def __init__(self, env, num_obstacles):
-        super().__init__(env, num_obstacles)
+    def __init__(self, env, grid_size, num_obstacles):
+        super(RL, self).__init__(env, grid_size, num_obstacles)
                         
         self.bdqn = None
         self.buffer = None
         self.gamma = 0.9875
-        self.action_dims = self.env.observation_space.n ** 2
+        self.memory_size = 10000000
         
     def _init_wandb(self, problem_instance, affinity_instance):
         config = super()._init_wandb(problem_instance, affinity_instance)
@@ -29,26 +28,26 @@ class RL(EA):
         config.num_episodes = self.num_episodes
         config.kl_coefficient = self.kl_coefficient
         config.configs_to_consider = self.configs_to_consider
-        config.action_success_rate = self.action_success_rate
     
-    def _select_action(self, onehot_state, onehot_action_sequence):    
+    def _select_action(self, state):    
         with torch.no_grad():
-            q_values_sample = self.bdqn(torch.FloatTensor(onehot_state), torch.FloatTensor(onehot_action_sequence))
+            state = torch.FloatTensor(state)
+            q_values_sample = self.bdqn(state)
             action = torch.argmax(q_values_sample).item()
         return action
             
     def _learn(self):    
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
-        state, action_sequence, action, reward, next_state, next_action_sequence, done = batch
+        state, action, reward, next_state, done = batch
         
-        q_values = self.bdqn(state, action_sequence)
+        q_values = self.bdqn(state)
         q = q_values.gather(1, action.long()).view(-1)
 
         # Select actions using online network
-        next_q_values = self.bdqn(next_state, next_action_sequence)
+        next_q_values = self.bdqn(next_state)
         next_actions = next_q_values.max(1)[1].detach()
         # Evaluate actions using target network to prevent overestimation bias
-        target_next_q_values = self.target_dqn(next_state, next_action_sequence)
+        target_next_q_values = self.target_dqn(next_state)
         next_q = target_next_q_values.gather(1, next_actions.unsqueeze(1)).view(-1).detach()
         
         q_hat = reward + (1 - done) * self.gamma * next_q
@@ -64,7 +63,8 @@ class RL(EA):
         
         # Form of regularization to prevent posterior collapse
         kl_divergence = 0
-        for layer in [self.bdqn.state_fc1, self.bdqn.state_fc2, self.bdqn.action_fc1, self.bdqn.action_fc2, self.bdqn.combined_fc]:
+        for layer in [self.bdqn.fc1, self.bdqn.fc2, self.bdqn.fc3]:
+            # Penalize the network for deviating from the prior
             w_mu = layer.w_mu
             w_rho = layer.w_rho
             w_sigma = torch.log1p(torch.exp(w_rho))
@@ -92,48 +92,42 @@ class RL(EA):
         
         for _ in range(self.num_episodes):
             done = False
-            action_lst = []
-            num_actions = 0
+            action_seq = []
+            num_action = 0
             state = start_state
-            onehot_action_sequence = np.array([0] * self.action_dims)
             while not done:
-                num_actions += 1
-                onehot_state = self.encoder.fit_transform(state.reshape(-1, 1)).toarray().flatten()
-                action = self._select_action(onehot_state, onehot_action_sequence)
-                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_actions)
-                onehot_next_state = self.encoder.fit_transform(next_state.reshape(-1, 1)).toarray().flatten()
-                onehot_next_action_sequence = onehot_action_sequence.copy()
-                onehot_next_action_sequence[(num_actions-1)*64 + action] = 1
-                self.buffer.add((onehot_state, onehot_action_sequence, action, reward, onehot_next_state, onehot_next_action_sequence, done))
-                loss, td_error, tree_idxs = self._learn()
+                num_action += 1
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)    
                 state = next_state
-                onehot_action_sequence = onehot_next_action_sequence
-                action_lst.append(action)
-            
+                action_seq += [action]
+                
+            self.buffer.hallucinate(action_seq, reward)
+            loss, td_error, tree_idxs = self._learn()
             self.buffer.update_priorities(tree_idxs, td_error)
             
             losses.append(loss)
             rewards.append(reward)
-            avg_loss = np.mean(losses[-100:])
-            avg_rewards = np.mean(rewards[-100:])
+            avg_loss = np.mean(losses[self.sma_window:])
+            avg_rewards = np.mean(rewards[self.sma_window:])
             wandb.log({"Average Loss": avg_loss})
             wandb.log({"Average Reward": avg_rewards})
             
             if reward > best_reward:
-                best_actions = action_lst
+                best_actions = action_seq
                 best_reward = reward
                 
         return best_actions, best_reward, losses, rewards
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance, affinity_instance):
-        self._init_wandb(problem_instance, affinity_instance)
+        # self._init_wandb(problem_instance, affinity_instance)
         
-        self.buffer = MultiInputPER(self.state_dims, self.action_dims, 1, self.memory_size)
-        self.bdqn = MultiInputBayesianDQN(self.state_dims, self.action_dims, self.num_actions, self.alpha)
+        self.bdqn = BayesianDQN(self.state_dims, self.action_dims, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
+        self.buffer = PrioritizedReplayBuffer(self.state_dims, self.memory_size)
         
-        start_state = self._convert_state(problems.desc)
+        start_state = np.array([0] * self.state_dims)
         best_actions, best_reward, losses, rewards = self._train(problem_instance, affinity_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
