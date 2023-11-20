@@ -13,29 +13,29 @@ from agents.attention_neuron import AttentionNeuron
 
 
 class Driver:
-    def __init__(self, num_obstacles, grid_size, render_mode):
+    def __init__(self, grid_size, render_mode):
         self.env = gym.make(
             id='FrozenLake-v1', 
             map_name=grid_size, 
             render_mode=render_mode
             )
         
-        self.grid_size = grid_size
-        # TODO: Add constraint on number of obstacles based on grid_size
+        num_obstacles = 5 if grid_size == '4x4' else 14
         
+        self.grid_size = grid_size
         self.num_cols = self.env.unwrapped.ncol
         self.rl = RL(self.env, grid_size, num_obstacles)
         self.earl = EARL(self.env, grid_size, num_obstacles)
         self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
-    def retrieve_modifications(self, problem_instance, affinity_instance):
-        approaches = ['rl', 'earl']
+    def retrieve_modifications(self, problem_instance):
+        approaches = ['attention_neuron']
         losses = {'A* w/ EARL': None, 'A* w/ RL': None}
         rewards = {'A* w/ EARL': None, 'A* w/ RL': None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
-            modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance, affinity_instance)
+            modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance)
             losses[list(losses.keys())[idx]] = loss
             rewards[list(losses.keys())[idx]] = reward
             
@@ -64,12 +64,12 @@ class Driver:
         
         return graph, start, goal, transporter
     
-    def act(self, problem_instance, affinity_instance, modification_set, num_episodes):
+    def act(self, problem_instance, modification_set, num_episodes):
         path_len = {'A* w/ EARL': [], 'A* w/ RL': []}
         avg_path_cost = {'A* w/ EARL': 0, 'A* w/ RL': 0}
         
         for _ in range(num_episodes):
-            desc = problems.get_instantiated_desc(problem_instance, affinity_instance, self.grid_size, self.num_obstacles)
+            desc = problems.get_instantiated_desc(problem_instance, self.grid_size, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
             tmp_desc = copy.deepcopy(desc)
@@ -92,17 +92,14 @@ if __name__ == '__main__':
     
     all_metrics = []
     num_episodes = 10000
-    # problem_list = problems.get_problem_list()
-    # affinity_list = problems.get_affinity_list()
-    # for problem_instance, affinity_instance in product(problem_list, affinity_list):
-    problem_instance = 'snake'
-    affinity_instance = 'random'
-    modification_set, losses, rewards = driver.retrieve_modifications(problem_instance, affinity_instance)
-    avg_path_cost = driver.act(problem_instance, affinity_instance, modification_set, num_episodes)
-    all_metrics.append({
-        'avg_path_cost': avg_path_cost,
-        'losses': losses,
-        'rewards': rewards
-    })
+    problem_list = problems.get_problem_list(grid_size)
+    for problem_instance in problem_list:
+        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance)
+        avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
+        all_metrics.append({
+            'avg_path_cost': avg_path_cost,
+            'losses': losses,
+            'rewards': rewards
+        })
     
     # plot_metrics(problem_list, affinity_list, all_metrics)

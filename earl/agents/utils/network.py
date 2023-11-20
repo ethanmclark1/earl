@@ -51,7 +51,6 @@ class BayesianDQN(nn.Module):
         return self.fc3(x)
     
 
-# TODO: Validate everything
 # Permutation Invariant Neural Network 
 # https://attentionneuron.github.io/
 class PINN(nn.Module):
@@ -62,13 +61,12 @@ class PINN(nn.Module):
         self.output_dims = output_dims
         
         self.hx = None
-        self.previous_action = torch.tensor([0.] * output_dims)
+        self.previous_action = torch.zeros(self.output_dims)
         
-        self.lstm = nn.LSTMCell(input_size=66, hidden_size=self.query_size)
+        self.lstm = nn.LSTMCell(input_size=self.output_dims+1, hidden_size=self.query_size)
         self.q = torch.from_numpy(self.pos_table(16, self.query_size)).float()
         self.fq = nn.Linear(in_features=self.query_size, out_features=self.message_size, bias=False)
         self.fk = nn.Linear(in_features=self.query_size, out_features=self.message_size, bias=False)
-        self.fv = nn.Linear(in_features=self.query_size, out_features=self.message_size, bias=False)
         self.head = nn.Sequential(nn.Linear(in_features=16, out_features=output_dims))
     
     # Generate table of positional encodings
@@ -89,7 +87,7 @@ class PINN(nn.Module):
     
     def reset(self):
         self.hx = None
-        self.previous_action = np.array([0.] * self.output_dims)
+        self.previous_action = torch.zeros(self.output_dims)
 
     def forward(self, state):
         state = state.unsqueeze(-1)
@@ -99,22 +97,23 @@ class PINN(nn.Module):
             self.hx = self.h0(state_dims)
             
         # Add previous action to the observation as the input for the LSTM
-        x_pa = torch.cat([state, self.previous_action.repeat(64, 1)], dim=-1)
+        x_pa = torch.cat([state, self.previous_action.repeat(self.output_dims-1, 1)], dim=-1)
         self.hx = self.lstm(x_pa, self.hx)
         
         # Compute attention matrix
+        # Query: positional encoding of q
         q = self.fq(self.q)
+        # Key: f_k(o_t[i], a_{t-1})
+        # self.hx[0] is the hidden state of the LSTM
         k = self.fk(self.hx[0])
-        v = self.fv(self.x_pa)
         dot = torch.matmul(q, k.T)
-        attention_matrix = torch.div(dot, math.sqrt(1))
-
-        w = torch.tanh(attention_matrix)
-        # Weight observation based on attention weights
-        x = torch.tanh(torch.matmul(w, state))
+        attention_scores = torch.div(dot, math.sqrt(self.query_size))
+        attention_weights = torch.tanh(attention_scores)
+        # Value: f_v is a pass through function hence we can use the state as the value
+        m = torch.tanh(torch.matmul(attention_weights, state))
         
         # Go back to single batch
-        q_values = self.head(x.T).sigmoid()
+        q_values = self.head(m.T)
         action = torch.argmax(q_values).item()
         self.previous_action = torch.eye(self.output_dims)[action]
         return action

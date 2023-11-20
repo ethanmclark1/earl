@@ -15,19 +15,18 @@ from multiprocessing import Pool
 from agents.utils.ea import EA
 from agents.utils.network import PINN
 
-# TODO: Validate everything
 class AttentionNeuron(EA):
     def __init__(self, env, grid_size, num_obstacles):
         super(AttentionNeuron, self).__init__(env, grid_size, num_obstacles)
         
-        self.pop_size = 50
         self.n_processes = 4
+        self.n_population = 50
         self.n_generations = 300
-        self.fitness_samples = 10
+        self.fitness_samples = 8
         self.attention_neuron = None
         
-    def _init_wandb(self, problem_instance, affinity_instance):
-        config = super()._init_wandb(problem_instance, affinity_instance)
+    def _init_wandb(self, problem_instance):
+        config = super()._init_wandb(problem_instance)
         config.action_cost = self.action_cost
         config.configs_to_consider = self.configs_to_consider
         
@@ -52,7 +51,7 @@ class AttentionNeuron(EA):
 
             i += param_size
     
-    def _calc_fitness(self, model, problem_instance, affinity_instance, start_state):
+    def _calc_fitness(self, model, problem_instance, start_state):
         total_fitness = 0
         for _ in range(self.fitness_samples):
             done = False
@@ -63,42 +62,37 @@ class AttentionNeuron(EA):
             while not done:
                 num_action += 1
                 action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 state = next_state
                 
             total_fitness += reward
         
         avg_fitness = total_fitness / self.fitness_samples
-        wandb.log({'Average Reward': avg_fitness})
+        # wandb.log({'Average Reward': avg_fitness})
         return avg_fitness      
     
-    def _fit_model(self, problem_instance, affinity_instance, start_state):
-        fitness_history = []
-        
+    def _fit_model(self, problem_instance, start_state):        
         best_params = None
         best_fitness = -np.inf
         
         pool = Pool(self.n_processes)
-        models = [copy.deepcopy(self.attention_neuron) for _ in range(self.pop_size)]
+        models = [copy.deepcopy(self.attention_neuron) for _ in range(self.n_population)]
         model_params = sum(param.numel() for param in self.attention_neuron.parameters())
         solver = cma.CMAEvolutionStrategy(
             x0=np.zeros(model_params), 
             sigma0=1.0, 
-            inopts={'popsize': self.pop_size, 'randn': np.random.randn}
+            inopts={'popsize': self.n_population, 'randn': np.random.randn}
             )
         
         for _ in range(self.n_generations):
-            state = start_state
             # Get initial population (parameters)
             pop_params = solver.ask()
             
             for model, params in zip(models, pop_params):
                 self._set_params(model, params)
             
-            args = [(model, problem_instance, affinity_instance, state) for model in models]
-            self._calc_fitness(models[0], problem_instance, affinity_instance, state)
+            args = [(model, problem_instance, start_state) for model in models]
             pop_fitness = pool.starmap(self._calc_fitness, args)   
-            fitness_history.append(pop_fitness)
             
             solver.tell(pop_params, [-i for i in pop_fitness])
             
@@ -107,17 +101,35 @@ class AttentionNeuron(EA):
                 best_fitness = max_pop_fitness
                 best_params = pop_params[pop_fitness.index(max_pop_fitness)]
                 
-        return best_params, best_fitness, np.array(fitness_history)
+        return best_params, best_fitness
+    
+    def _get_action_seq(self, problem_instance, best_params, start_state):
+        action_seq = []
+        self._set_params(self.attention_neuron, best_params)
+        
+        done = False
+        num_action = 0
+        state = start_state
+        self.attention_neuron.reset()
+        
+        while not done and num_action < self.max_actions:
+            action = self._select_action(state)
+            _, next_state, done = self._step(problem_instance, state, action, num_action)
+            state = next_state
+            num_action += 1
+            action_seq.append(action)
+            
+        return action_seq
             
     # Generate optimal adaptation for a given problem instance
-    def _generate_adaptations(self, problem_instance, affinity_instance):
-        # self._init_wandb(problem_instance, affinity_instance)
+    def _generate_adaptations(self, problem_instance):
+        # self._init_wandb(problem_instance)
         
         self.attention_neuron = PINN(self.action_dims)
         
         start_state = np.array([0] * self.state_dims)
-        best_params, best_fitness, fitness_history = self._fit_model(problem_instance, affinity_instance, start_state)
-        best_actions = self._get_action_seq(problem_instance, affinity_instance, best_params, start_state)
+        best_params, best_fitness = self._fit_model(problem_instance, start_state)
+        best_actions = self._get_action_seq(problem_instance, best_params, start_state)
         
         wandb.log({'Final Reward': best_fitness})
         wandb.log({'Final Actions': best_actions})

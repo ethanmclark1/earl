@@ -43,7 +43,7 @@ class PrioritizedReplayBuffer:
         self.size = buffer_size
     
     def _sample_permutations(self, action_seq):
-        max_seq_len = 10
+        max_seq_len = 8
         permutations = set()
         permutations.add(tuple(action_seq))
         tmp_action_seq = action_seq.copy()

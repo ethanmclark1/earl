@@ -20,93 +20,46 @@ desc = {
         ]
 }
 
-# TODO: Add in 4x4 problems
 problems = {
     '4x4': {
-        
+        'cross': [(0,1),(1,1),(2,1),(3,1),(1,0),(1,2),(1,3)],
+        'gate': [(1,0),(1,1),(1,3),(2,0),(2,1),(2,3)],
+        'snake': [(0,1),(0,2),(1,2),(1,3),(2,3),(0,2),(0,3),(1,4)],
+        'diagonal': [(0,0),(1,1),(2,2),(2,1),(1,2),(0,3)]
     },
     '8x8': {
-        'cross': {
-            'obstacles': [
-                (1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),
-                ],
-            'houses': [
-                (1,1),(1,2),(1,4),(1,6),(4,0),(4,2),(4,4),(4,6),(6,1),(6,6),(7,3)
-                ]
-        },
-        'gate': {
-            'obstacles': [
-                (0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4),
-            ],
-            'houses': [
-                (0,2),(0,5),(1,0),(1,7),(2,1),(2,6),(3,2),(3,5),(5,0),(5,7),(6,1),(6,6),(7,2),(7,5)
-            ]
-        },
-        'snake': {
-            'obstacles': [
-                (0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)
-                ],
-            'houses': [
-                (0,0),(0,2),(0,5),(0,7),(2,2),(2,6),(4,3),(5,1),(5,5),(6,3),(7,0),(7,5),(7,7)
-            ]
-        },
-        'diagonal': {
-            'obstacles': [
-                (0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)
-            ],
-            'houses':[
-                (0,1),(0,7),(1,0),(2,1),(2,3),(2,4),(2,6),(5,1),(5,6),(5,7),(6,2),(6,5)
-            ]
-        }
+        'cross': [(0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),(3,0),(3,1),(3,2),(3,3),(3,4),(3,5),(3,6),(3,7)],
+        'gate': [(0,3),(1,3),(2,3),(3,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(5,4),(6,4),(7,4)],
+        'snake': [(0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1)],
+        'diagonal': [(0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1)],
     }
 }
 
-def get_problem_list():
-    return list(problems.keys())
+def get_problem_list(grid_size):
+    return list(problems[grid_size].keys())
 
-def get_affinity_list():
-    return ['nearest', 'furthest', 'random']
-
-# Probability of each start being matched with each goal
-def get_affinity_distribution(affinity_instance, start, objective_constr):
-    def euclid_dist(point1, point2):
-        return ((point1[0]-point2[0])**2 + (point1[1]-point2[1])**2) ** 0.5
-    
-    if affinity_instance != 'random':
-        reversed_order = True if affinity_instance == 'furthest' else False
-        sorted_coords = sorted(objective_constr, key=lambda x: euclid_dist(start, x), reverse=reversed_order)
-        sorted_coords = sorted_coords[:-1] if reversed_order else sorted_coords[1:]
-        n = len(sorted_coords)
-        r = 0.65
-        prob = [r**i for i in range(n)]
-        total = sum(prob)
-        prob = [p/total for p in prob] 
-    else:
-        sorted_coords = copy.copy(objective_constr)
-        sorted_coords.remove(start)
-        prob = [1/len(sorted_coords)] * len(sorted_coords)
-    
-    return sorted_coords, prob    
-
-def get_entity_positions(problem_instance, affinity_instance, grid_size, num_obstacles):
-    obstacle_constr, objective_constr = problems[grid_size][problem_instance].values()
-    
-    start_idx = np.random.choice(range(len(objective_constr)))
-    start = objective_constr[start_idx]
-    sorted_coords, affinity_distr = get_affinity_distribution(affinity_instance, start, objective_constr)
-    goal_idx = np.random.choice(range(len(sorted_coords)), p=affinity_distr)
-    goal = sorted_coords[goal_idx]
+def get_entity_positions(problem_instance, grid_size, num_obstacles):
+    obstacle_constr = problems[grid_size][problem_instance]
     
     tmp_obs_constr = np.array(obstacle_constr)
     obs_idx = np.random.choice(range(len(obstacle_constr)), size=num_obstacles, replace=False)
     obstacles = tmp_obs_constr[obs_idx]
     
+    dims = 4 if grid_size == '4x4' else 8
+    all_pos = set((x, y) for x in range(dims) for y in range(dims))
+    available_pos = list(all_pos - set(obstacle_constr))
+
+    # Randomly select start and goal from available positions
+    start_idx, goal_idx = np.random.choice(range(len(available_pos)), size=2, replace=False)
+    start = available_pos[start_idx]
+    goal = available_pos[goal_idx]
+    
     return start, goal, obstacles
     
-def get_instantiated_desc(problem_instance, affinity_instance, grid_size, num_obstacles):
+def get_instantiated_desc(problem_instance, grid_size, num_obstacles):
     instance_desc = copy.deepcopy(desc[grid_size])
     
-    start, goal, obstacles = get_entity_positions(problem_instance, affinity_instance, num_obstacles)
+    start, goal, obstacles = get_entity_positions(problem_instance, num_obstacles)
         
     tmp_lst = list(instance_desc[start[0]])
     tmp_lst[start[1]] = 'S'

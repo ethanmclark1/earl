@@ -17,8 +17,8 @@ class RL(EA):
         self.gamma = 0.9875
         self.memory_size = 10000000
         
-    def _init_wandb(self, problem_instance, affinity_instance):
-        config = super()._init_wandb(problem_instance, affinity_instance)
+    def _init_wandb(self, problem_instance):
+        config = super()._init_wandb(problem_instance)
         config.tau = self.tau
         config.alpha = self.alpha
         config.gamma = self.gamma 
@@ -84,7 +84,7 @@ class RL(EA):
         return loss.item(), td_error.numpy(), tree_idxs
     
     # Train the child model on a given problem instance
-    def _train(self, problem_instance, affinity_instance, start_state):
+    def _train(self, problem_instance, start_state):
         losses = []
         rewards = []
         best_actions = None
@@ -98,7 +98,7 @@ class RL(EA):
             while not done:
                 num_action += 1
                 action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, affinity_instance, state, action, num_action)    
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)    
                 state = next_state
                 action_seq += [action]
                 
@@ -120,15 +120,15 @@ class RL(EA):
         return best_actions, best_reward, losses, rewards
     
     # Generate optimal adaptation for a given problem instance
-    def _generate_adaptations(self, problem_instance, affinity_instance):
-        # self._init_wandb(problem_instance, affinity_instance)
+    def _generate_adaptations(self, problem_instance):
+        self._init_wandb(problem_instance)
         
         self.bdqn = BayesianDQN(self.state_dims, self.action_dims, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
         self.buffer = PrioritizedReplayBuffer(self.state_dims, self.memory_size)
         
         start_state = np.array([0] * self.state_dims)
-        best_actions, best_reward, losses, rewards = self._train(problem_instance, affinity_instance, start_state)
+        best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
         wandb.log({'Final Actions': best_actions})

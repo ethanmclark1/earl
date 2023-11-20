@@ -6,12 +6,6 @@ def get_arguments():
         )
     
     parser.add_argument(
-        '--num_obstacles',
-        type=int, 
-        default=12,
-        help='Number of obstacles in the environment (no more than 16) {default_val: 12}'
-        )
-    parser.add_argument(
         '--grid_size',
         type=str, 
         default='4x4',
@@ -29,4 +23,4 @@ def get_arguments():
     
     args = parser.parse_args()
         
-    return args.num_obstacles, args.grid_size, args.render_mode
+    return args.grid_size, args.render_mode
