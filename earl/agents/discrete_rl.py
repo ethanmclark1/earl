@@ -4,13 +4,13 @@ import wandb
 import numpy as np
 
 from agents.utils.ea import EA
-from agents.utils.network import BayesianDQN
+from agents.utils.networks import BayesianDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 
-class RL(EA):
+class DiscreteRL(EA):
     def __init__(self, env, grid_size, num_obstacles):
-        super(RL, self).__init__(env, grid_size, num_obstacles)
+        super(DiscreteRL, self).__init__(env, grid_size, num_obstacles)
                         
         self.bdqn = None
         self.buffer = None

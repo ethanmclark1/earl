@@ -13,7 +13,7 @@ import numpy as np
 from multiprocessing import Pool
 
 from agents.utils.ea import EA
-from agents.utils.network import PINN
+from agents.utils.networks import PINN
 
 class AttentionNeuron(EA):
     def __init__(self, env, grid_size, num_obstacles):
@@ -21,13 +21,17 @@ class AttentionNeuron(EA):
         
         self.n_processes = 4
         self.n_population = 50
-        self.n_generations = 300
-        self.fitness_samples = 8
+        self.n_generations = 400
+        self.fitness_samples = 50
         self.attention_neuron = None
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.action_cost = self.action_cost
+        config.n_processes = self.n_processes
+        config.n_population = self.n_population
+        config.n_generations = self.n_generations
+        config.fitness_samples = self.fitness_samples
         config.configs_to_consider = self.configs_to_consider
         
     def _select_action(self, state):
@@ -68,7 +72,6 @@ class AttentionNeuron(EA):
             total_fitness += reward
         
         avg_fitness = total_fitness / self.fitness_samples
-        # wandb.log({'Average Reward': avg_fitness})
         return avg_fitness      
     
     def _fit_model(self, problem_instance, start_state):        
@@ -85,7 +88,7 @@ class AttentionNeuron(EA):
             )
         
         for _ in range(self.n_generations):
-            # Get initial population (parameters)
+            # Get initial population (parameters for each model)
             pop_params = solver.ask()
             
             for model, params in zip(models, pop_params):
@@ -96,7 +99,8 @@ class AttentionNeuron(EA):
             
             solver.tell(pop_params, [-i for i in pop_fitness])
             
-            max_pop_fitness = max(pop_fitness)            
+            max_pop_fitness = max(pop_fitness)    
+            wandb.log({'Max Fitness': max_pop_fitness})
             if max_pop_fitness > best_fitness:
                 best_fitness = max_pop_fitness
                 best_params = pop_params[pop_fitness.index(max_pop_fitness)]
@@ -112,7 +116,7 @@ class AttentionNeuron(EA):
         state = start_state
         self.attention_neuron.reset()
         
-        while not done and num_action < self.max_actions:
+        while not done:
             action = self._select_action(state)
             _, next_state, done = self._step(problem_instance, state, action, num_action)
             state = next_state
@@ -123,11 +127,11 @@ class AttentionNeuron(EA):
             
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        # self._init_wandb(problem_instance)
+        self._init_wandb(problem_instance)
         
         self.attention_neuron = PINN(self.action_dims)
         
-        start_state = np.array([0] * self.state_dims)
+        start_state = torch.zeros(self.state_dim)
         best_params, best_fitness = self._fit_model(problem_instance, start_state)
         best_actions = self._get_action_seq(problem_instance, best_params, start_state)
         

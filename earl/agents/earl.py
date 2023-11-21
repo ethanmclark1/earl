@@ -4,7 +4,7 @@ import wandb
 import numpy as np
 
 from agents.utils.ea import EA
-from agents.utils.network import BayesianDQN
+from agents.utils.networks import BayesianDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 
@@ -143,7 +143,7 @@ class EARL(EA):
         self.target_dqn = copy.deepcopy(self.bdqn)
         self.buffer = PrioritizedReplayBuffer(self.state_dims, self.memory_size)
         
-        start_state = np.array([0] * self.state_dims)
+        start_state = torch.zeros(self.state_dims)
         best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})

@@ -35,7 +35,6 @@ class BayesianLinear(nn.Module):
         
         return F.linear(x, w, b)
     
-
 class BayesianDQN(nn.Module):
     def __init__(self, input_dims, output_dims, lr):
         super(BayesianDQN, self).__init__()
@@ -58,6 +57,7 @@ class PINN(nn.Module):
         super(PINN, self).__init__()
         self.query_size = 8
         self.message_size = 32
+        self.temperature = 0.15
         self.output_dims = output_dims
         
         self.hx = None
@@ -112,8 +112,36 @@ class PINN(nn.Module):
         # Value: f_v is a pass through function hence we can use the state as the value
         m = torch.tanh(torch.matmul(attention_weights, state))
         
-        # Go back to single batch
-        q_values = self.head(m.T)
-        action = torch.argmax(q_values).item()
+        logits = self.head(m.T)
+        scaled_logits = torch.div(logits, self.temperature)
+        action_probs = F.softmax(scaled_logits, dim=-1)
+        action = torch.multinomial(action_probs, 1).item()
         self.previous_action = torch.eye(self.output_dims)[action]
         return action
+    
+
+# Twin Delayed DDPG (TD3)
+# https://spinningup.openai.com/en/latest/algorithms/td3.html
+class Actor(nn.Module):
+    def __init__(self, input_dims, output_dims, lr):
+        super(Actor, self).__init__()
+        self.fc1 = nn.Linear(input_dims, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, output_dims)
+        
+        self.optim = Adam(self.parameters(), lr=lr)
+        
+    def forward(self, state):
+        a=3
+        
+class Critic(nn.Module):
+    def __init__(self, input_dims, output_dims, lr):
+        super(Critic, self).__init__()
+        self.fc1 = nn.Linear(input_dims, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, 1)
+        
+        self.optim = Adam(self.parameters(), lr=lr)
+    
+    def forward(self, state):
+        a=3

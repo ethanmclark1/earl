@@ -7,8 +7,9 @@ import gymnasium as gym
 from plotter import plot_metrics
 from arguments import get_arguments
 
-from agents.rl import RL
 from agents.earl import EARL
+from agents.discrete_rl import DiscreteRL
+from agents.continuous_rl import ContinuousRL
 from agents.attention_neuron import AttentionNeuron
 
 
@@ -24,14 +25,16 @@ class Driver:
         
         self.grid_size = grid_size
         self.num_cols = self.env.unwrapped.ncol
-        self.rl = RL(self.env, grid_size, num_obstacles)
+        
         self.earl = EARL(self.env, grid_size, num_obstacles)
+        self.discrete_rl = DiscreteRL(self.env, grid_size, num_obstacles)
+        self.continuous_rl = ContinuousRL(self.env, grid_size, num_obstacles)
         self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
     def retrieve_modifications(self, problem_instance):
         approaches = ['attention_neuron']
-        losses = {'A* w/ EARL': None, 'A* w/ RL': None}
-        rewards = {'A* w/ EARL': None, 'A* w/ RL': None}
+        losses = {'A* w/ EARL': None, 'A* w/ DiscreteRL': None}
+        rewards = {'A* w/ EARL': None, 'A* w/ DiscreteRL': None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
@@ -65,24 +68,24 @@ class Driver:
         return graph, start, goal, transporter
     
     def act(self, problem_instance, modification_set, num_episodes):
-        path_len = {'A* w/ EARL': [], 'A* w/ RL': []}
-        avg_path_cost = {'A* w/ EARL': 0, 'A* w/ RL': 0}
+        path_len = {'A* w/ EARL': [], 'A* w/ DiscreteRL': []}
+        avg_path_cost = {'A* w/ EARL': 0, 'A* w/ DiscreteRL': 0}
         
         for _ in range(num_episodes):
             desc = problems.get_instantiated_desc(problem_instance, self.grid_size, self.num_obstacles)
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
             tmp_desc = copy.deepcopy(desc)
-            rl_desc = self.rl.get_adapted_env(tmp_desc, modification_set['rl'])
+            discrete_rl_desc = self.discrete_rl.get_adapted_env(tmp_desc, modification_set['rl'])
             
             for approach in path_len.keys():
-                current_desc = rl_desc if approach == 'A* w/ RL' else earl_desc
+                current_desc = discrete_rl_desc if approach == 'A* w/ DiscreteRL' else earl_desc
                 graph, start, goal, transporter = self._make_graph(current_desc)
                 path = set(nx.astar_path(graph, start, goal))
                 path_len[approach] += [len(path - transporter)]
                 
         avg_path_cost['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
-        avg_path_cost['A* w/ RL'] = np.mean(path_len['A* w/ RL'])
+        avg_path_cost['A* w/ DiscreteRL'] = np.mean(path_len['A* w/ DiscreteRL'])
         return avg_path_cost
     
 
