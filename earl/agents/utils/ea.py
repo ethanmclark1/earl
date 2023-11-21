@@ -26,11 +26,11 @@ class EA:
     def _init_hyperparams(self):
         self.tau = 0.008
         self.alpha = 0.002
-        self.sma_window = -100
         self.batch_size = 256
-        self.num_episodes = 1500
+        self.sma_window = -100
+        self.num_episodes = 500
         self.action_cost = -0.25
-        self.kl_coefficient = 0.001
+        self.dummy_episodes = 25
         self.configs_to_consider = 10
         self.action_success_rate = 0.75
 
@@ -62,6 +62,28 @@ class EA:
         
         config = wandb.config
         return config
+    
+    # Populate buffer with dummy episodes
+    def _populate_buffer(self, problem_instance, start_state):
+        name = self.__class__.__name__
+
+        for _ in range(self.dummy_episodes):
+            done = False
+            num_action = 0
+            action_seq = []
+            state = start_state
+            while not done:
+                num_action += 1
+                action = self.rng.integers(self.action_dims)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                if name == 'DiscreteRL':
+                    action_seq += [action]
+                else:
+                    self.buffer.add(state, action, reward, next_state, done)
+                state = next_state
+            
+            if name == 'DiscreteRL':
+                self.buffer.hallucinate(action_seq, reward)
     
     # Calculate rewards for a given configuration by averaging A* path lengths over multiple trials
     """

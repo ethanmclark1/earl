@@ -32,9 +32,10 @@ class Driver:
         self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
     def retrieve_modifications(self, problem_instance):
-        approaches = ['attention_neuron']
-        losses = {'A* w/ EARL': None, 'A* w/ DiscreteRL': None}
-        rewards = {'A* w/ EARL': None, 'A* w/ DiscreteRL': None}
+        # approaches = ['discrete_rl', 'continuous_rl', 'attention_neuron', 'earl']
+        approaches = ['discrete_rl']
+        losses = {"A* w/ DiscreteRL": None, "A* w/ ContinuousRL": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
+        rewards = {"A* w/ DiscreteRL": None, "A* w/ ContinuousRL": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):

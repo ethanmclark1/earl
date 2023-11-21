@@ -14,7 +14,7 @@ class EARL(EA):
                 
         self.bdqn = None
         self.buffer = None
-        self.combinations = {}
+        
         self.memory_size = 100000
 
     def _init_wandb(self, problem_instance):

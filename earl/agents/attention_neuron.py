@@ -15,20 +15,25 @@ from multiprocessing import Pool
 from agents.utils.ea import EA
 from agents.utils.networks import PINN
 
+
+# CMA-ES with Attention Mechanism
 class AttentionNeuron(EA):
     def __init__(self, env, grid_size, num_obstacles):
         super(AttentionNeuron, self).__init__(env, grid_size, num_obstacles)
         
-        self.n_processes = 4
-        self.n_population = 50
-        self.n_generations = 400
-        self.fitness_samples = 50
         self.attention_neuron = None
+        
+        self.n_processes = 4
+        self.n_population = 30
+        self.temperature = 0.25
+        self.n_generations = 200
+        self.fitness_samples = 15
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.action_cost = self.action_cost
         config.n_processes = self.n_processes
+        config.temperature = self.temperature
         config.n_population = self.n_population
         config.n_generations = self.n_generations
         config.fitness_samples = self.fitness_samples
@@ -36,8 +41,8 @@ class AttentionNeuron(EA):
         
     def _select_action(self, state):
         with torch.no_grad():
-            state = torch.FloatTensor(state)
-            action = self.attention_neuron(state)            
+            action = self.attention_neuron(state)       
+                 
         return action
     
     # Set the parameters of the model

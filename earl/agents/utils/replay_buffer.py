@@ -4,10 +4,10 @@
 # Title: Prioritized Experience Replay - Memory: buffer.py
 # Version: 339e6aa
 
+import math
 import torch
 import random
 import itertools
-import numpy as np
 
 from agents.utils.sumtree import SumTree
 
@@ -43,7 +43,7 @@ class PrioritizedReplayBuffer:
         self.size = buffer_size
     
     def _sample_permutations(self, action_seq):
-        max_seq_len = 8
+        max_seq_len = 9
         permutations = set()
         permutations.add(tuple(action_seq))
         tmp_action_seq = action_seq.copy()
@@ -54,7 +54,7 @@ class PrioritizedReplayBuffer:
             permutations_no_termination = itertools.permutations(tmp_action_seq)
             permutations = {permutation + (terminating_action,) for permutation in permutations_no_termination}
         else:
-            while len(permutations) < np.math.factorial(max_seq_len):
+            while len(permutations) < math.factorial(max_seq_len):
                 random.shuffle(tmp_action_seq)
                 permutations.add(tuple(tmp_action_seq + [terminating_action]))
                 
@@ -76,7 +76,7 @@ class PrioritizedReplayBuffer:
         
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
     def hallucinate(self, action_seq, reward):        
-        start_state = np.array([0] * self.state_dims)
+        start_state = torch.zeros(self.state_dims)
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             state = start_state

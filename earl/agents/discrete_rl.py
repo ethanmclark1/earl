@@ -7,14 +7,16 @@ from agents.utils.ea import EA
 from agents.utils.networks import BayesianDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
-
+# Bayesian DQN with Prioritized Experience Replay
 class DiscreteRL(EA):
     def __init__(self, env, grid_size, num_obstacles):
         super(DiscreteRL, self).__init__(env, grid_size, num_obstacles)
                         
         self.bdqn = None
         self.buffer = None
+        
         self.gamma = 0.9875
+        self.kl_coefficient = 0.001
         self.memory_size = 10000000
         
     def _init_wandb(self, problem_instance):
@@ -31,7 +33,6 @@ class DiscreteRL(EA):
     
     def _select_action(self, state):    
         with torch.no_grad():
-            state = torch.FloatTensor(state)
             q_values_sample = self.bdqn(state)
             action = torch.argmax(q_values_sample).item()
         return action
@@ -92,13 +93,14 @@ class DiscreteRL(EA):
         
         for _ in range(self.num_episodes):
             done = False
-            action_seq = []
             num_action = 0
+            action_seq = []
             state = start_state
             while not done:
                 num_action += 1
                 action = self._select_action(state)
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)    
+                
                 state = next_state
                 action_seq += [action]
                 
@@ -121,13 +123,14 @@ class DiscreteRL(EA):
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        self._init_wandb(problem_instance)
+        # self._init_wandb(problem_instance)
         
         self.bdqn = BayesianDQN(self.state_dims, self.action_dims, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
         self.buffer = PrioritizedReplayBuffer(self.state_dims, self.memory_size)
         
-        start_state = np.array([0] * self.state_dims)
+        start_state = torch.zeros(self.state_dims)
+        self._populate_buffer(problem_instance, start_state)
         best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
