@@ -43,11 +43,12 @@ class TD3(EA):
         config.actor_lr = self.actor_lr
         config.critic_lr = self.critic_lr
         config.batch_size = self.batch_size
-        config.noise_clamp = self.noise_clamp
         config.memory_size = self.memory_size
         config.policy_freq = self.policy_freq
         config.num_episodes = self.num_episodes
         config.dummy_episodes = self.dummy_episodes
+        config.temperature_start = self.temperature_start
+        config.temperature_decay = self.temperature_decay
         
     def _decay_temperature(self):
         self.temperature *= self.temperature_decay
