@@ -143,7 +143,7 @@ class Critic(nn.Module):
         # Q1 architecture
         self.fc1 = nn.Linear(state_dim + action_dim, 32)
         self.fc2 = nn.Linear(32, 32)
-        self.fc3 = nn.Linear(16, 1)
+        self.fc3 = nn.Linear(32, 1)
 
         # Q2 architecture
         self.fc4 = nn.Linear(state_dim + action_dim, 32)
