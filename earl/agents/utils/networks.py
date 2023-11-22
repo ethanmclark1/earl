@@ -38,9 +38,9 @@ class BayesianLinear(nn.Module):
 class BayesianDQN(nn.Module):
     def __init__(self, state_dims, action_dims, lr):
         super(BayesianDQN, self).__init__()
-        self.fc1 = BayesianLinear(state_dims, 128)
-        self.fc2 = BayesianLinear(128, 128)
-        self.fc3 = BayesianLinear(128, action_dims)
+        self.fc1 = BayesianLinear(state_dims, 32)
+        self.fc2 = BayesianLinear(32, 32)
+        self.fc3 = BayesianLinear(32, action_dims)
         
         self.optim = Adam(self.parameters(), lr=lr)
     
@@ -142,13 +142,13 @@ class Critic(nn.Module):
 
         # Q1 architecture
         self.fc1 = nn.Linear(state_dim + action_dim, 32)
-        self.fc2 = nn.Linear(32, 16)
+        self.fc2 = nn.Linear(32, 32)
         self.fc3 = nn.Linear(16, 1)
 
         # Q2 architecture
         self.fc4 = nn.Linear(state_dim + action_dim, 32)
-        self.fc5 = nn.Linear(32, 16)
-        self.fc6 = nn.Linear(16, 1)
+        self.fc5 = nn.Linear(32, 32)
+        self.fc6 = nn.Linear(32, 1)
         
         self.optim = Adam(self.parameters(), lr=lr)
 

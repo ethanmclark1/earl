@@ -8,9 +8,9 @@ from agents.utils.networks import BayesianDQN
 from agents.utils.replay_buffer import PrioritizedReplayBuffer
 
 # Bayesian DQN with Prioritized Experience Replay
-class DiscreteRL(EA):
+class BDQN(EA):
     def __init__(self, env, grid_size, num_obstacles):
-        super(DiscreteRL, self).__init__(env, grid_size, num_obstacles)
+        super(BDQN, self).__init__(env, grid_size, num_obstacles)
                         
         self.bdqn = None
         self.buffer = None
@@ -64,7 +64,7 @@ class DiscreteRL(EA):
         
         # Form of regularization to prevent posterior collapse
         kl_divergence = 0
-        for layer in [self.bdqn.fc1, self.bdqn.fc2, self.bdqn.fc3]:
+        for layer in self.bdqn.children():
             # Penalize the network for deviating from the prior
             w_mu = layer.w_mu
             w_rho = layer.w_rho
@@ -99,6 +99,7 @@ class DiscreteRL(EA):
             while not done:
                 num_action += 1
                 action = self._select_action(state)
+                action = 16
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)    
                 
                 state = next_state

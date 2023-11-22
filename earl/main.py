@@ -7,9 +7,9 @@ import gymnasium as gym
 from plotter import plot_metrics
 from arguments import get_arguments
 
+from agents.td3 import TD3
 from agents.earl import EARL
-from agents.discrete_rl import DiscreteRL
-from agents.continuous_rl import ContinuousRL
+from agents.bdqn import BDQN
 from agents.attention_neuron import AttentionNeuron
 
 
@@ -27,15 +27,15 @@ class Driver:
         self.num_cols = self.env.unwrapped.ncol
         
         self.earl = EARL(self.env, grid_size, num_obstacles)
-        self.discrete_rl = DiscreteRL(self.env, grid_size, num_obstacles)
-        self.continuous_rl = ContinuousRL(self.env, grid_size, num_obstacles)
+        self.bdqn = BDQN(self.env, grid_size, num_obstacles)
+        self.td3 = TD3(self.env, grid_size, num_obstacles)
         self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
     def retrieve_modifications(self, problem_instance):
-        # approaches = ['discrete_rl', 'continuous_rl', 'attention_neuron', 'earl']
-        approaches = ['discrete_rl']
-        losses = {"A* w/ DiscreteRL": None, "A* w/ ContinuousRL": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
-        rewards = {"A* w/ DiscreteRL": None, "A* w/ ContinuousRL": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
+        # approaches = ['bdqn', 'td3', 'attention_neuron', 'earl']
+        approaches = ['td3']
+        losses = {"A* w/ BDQN": None, "A* w/ TD3": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
+        rewards = {"A* w/ BDQN": None, "A* w/ TD3": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
@@ -69,24 +69,41 @@ class Driver:
         return graph, start, goal, transporter
     
     def act(self, problem_instance, modification_set, num_episodes):
-        path_len = {'A* w/ EARL': [], 'A* w/ DiscreteRL': []}
-        avg_path_cost = {'A* w/ EARL': 0, 'A* w/ DiscreteRL': 0}
+        path_len = {'A* w/ BDQN': [], 'A* w/ TD3': [], 'A* w/ AttentionNeuron': [], 'A* w/ EARL': []}
+        avg_path_cost = {'A* w/ BDQN': 0, 'A* w/ TD3': 0, 'A* w/ AttentionNeuron': 0, 'A* w/ EARL': 0}
         
         for _ in range(num_episodes):
             desc = problems.get_instantiated_desc(problem_instance, self.grid_size, self.num_obstacles)
+            
+            # Create copies of desc for each approach due to pass-by-object-reference in Python
+            tmp_desc = copy.deepcopy(desc)
+            bdqn_desc = self.bdqn.get_adapted_env(tmp_desc, modification_set['bdqn'])
+            tmp_desc = copy.deepcopy(desc)
+            td3_desc = self.td3.get_adapted_env(tmp_desc, modification_set['td3'])
+            tmp_desc = copy.deepcopy(desc)
+            attention_neuron_desc = self.attention_neuron.get_adapted_env(tmp_desc, modification_set['attention_neuron'])
             tmp_desc = copy.deepcopy(desc)
             earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
-            tmp_desc = copy.deepcopy(desc)
-            discrete_rl_desc = self.discrete_rl.get_adapted_env(tmp_desc, modification_set['rl'])
             
             for approach in path_len.keys():
-                current_desc = discrete_rl_desc if approach == 'A* w/ DiscreteRL' else earl_desc
+                if approach == 'A* w/ BDQN':
+                    current_desc = bdqn_desc
+                elif approach == 'A* w/ TD3':
+                    current_desc = td3_desc
+                elif approach == 'A* w/ AttentionNeuron':
+                    current_desc = attention_neuron_desc
+                else:
+                    current_desc = earl_desc
+                    
                 graph, start, goal, transporter = self._make_graph(current_desc)
                 path = set(nx.astar_path(graph, start, goal))
                 path_len[approach] += [len(path - transporter)]
-                
+        
+        avg_path_cost['A* w/ BDQN'] = np.mean(path_len['A* w/ BDQN'])
+        avg_path_cost['A* w/ TD3'] = np.mean(path_len['A* w/ TD3'])
+        avg_path_cost['A* w/ AttentionNeuron'] = np.mean(path_len['A* w/ AttentionNeuron'])
         avg_path_cost['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
-        avg_path_cost['A* w/ DiscreteRL'] = np.mean(path_len['A* w/ DiscreteRL'])
+        
         return avg_path_cost
     
 
@@ -94,16 +111,12 @@ if __name__ == '__main__':
     grid_size, render_mode = get_arguments()
     driver = Driver(grid_size, render_mode)    
     
-    all_metrics = []
+    metric = []
     num_episodes = 10000
     problem_list = problems.get_problem_list(grid_size)
     for problem_instance in problem_list:
         modification_set, losses, rewards = driver.retrieve_modifications(problem_instance)
         avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
-        all_metrics.append({
-            'avg_path_cost': avg_path_cost,
-            'losses': losses,
-            'rewards': rewards
-        })
-    
-    # plot_metrics(problem_list, affinity_list, all_metrics)
+        metric.append(avg_path_cost)
+
+    plot_metrics(problem_list, metric)

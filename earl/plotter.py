@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_metrics(problem_list, affinity_list, all_metrics):
+def plot_metrics(problem_list, avg_path_cost):
     results_dir = 'results'
     if not os.path.exists(results_dir):
         os.makedirs(results_dir)

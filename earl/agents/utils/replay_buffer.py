@@ -4,6 +4,7 @@
 # Title: Prioritized Experience Replay - Memory: buffer.py
 # Version: 339e6aa
 
+import copy
 import math
 import torch
 import random
@@ -81,7 +82,7 @@ class PrioritizedReplayBuffer:
         for permutation in permutations:
             state = start_state
             for action in permutation:
-                next_state = state.copy()
+                next_state = copy.deepcopy(state)
                 # Terminating action does not change state
                 if action != len(state):
                     next_state[action] = 4

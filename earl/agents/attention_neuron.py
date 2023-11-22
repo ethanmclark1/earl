@@ -25,9 +25,9 @@ class AttentionNeuron(EA):
         
         self.n_processes = 4
         self.n_population = 30
-        self.temperature = 0.25
-        self.n_generations = 200
-        self.fitness_samples = 15
+        self.temperature = 0.225
+        self.n_generations = 250
+        self.fitness_samples = 20
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)

@@ -27,7 +27,7 @@ class EA:
         self.tau = 0.008
         self.alpha = 0.002
         self.batch_size = 256
-        self.sma_window = -100
+        self.sma_window = -50
         self.num_episodes = 500
         self.action_cost = -0.25
         self.dummy_episodes = 25
@@ -76,6 +76,8 @@ class EA:
                 num_action += 1
                 action = self.rng.integers(self.action_dims)
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                
+                # Add action to action sequence to hallucinate traces if using DiscreteRL
                 if name == 'DiscreteRL':
                     action_seq += [action]
                 else:
