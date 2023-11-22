@@ -15,7 +15,12 @@ class BDQN(EA):
         self.bdqn = None
         self.buffer = None
         
+        self.tau = 0.008
+        self.alpha = 0.002
         self.gamma = 0.9875
+        self.batch_size = 256
+        self.num_episodes = 500
+        self.dummy_episodes = 25
         self.kl_coefficient = 0.001
         self.memory_size = 10000000
         
@@ -25,11 +30,10 @@ class BDQN(EA):
         config.alpha = self.alpha
         config.gamma = self.gamma 
         config.batch_size = self.batch_size
-        config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
+        config.dummy_episodes = self.dummy_episodes
         config.kl_coefficient = self.kl_coefficient
-        config.configs_to_consider = self.configs_to_consider
     
     def _select_action(self, state):    
         with torch.no_grad():
@@ -62,7 +66,7 @@ class BDQN(EA):
         # Multiply by importance sampling weights to correct bias from prioritized replay
         loss = (weights * (q_hat - q) ** 2).mean()
         
-        # Form of regularization to prevent posterior collapse
+        # Regularize to prevent posterior collapse
         kl_divergence = 0
         for layer in self.bdqn.children():
             # Penalize the network for deviating from the prior
@@ -84,7 +88,6 @@ class BDQN(EA):
         
         return loss.item(), td_error.numpy(), tree_idxs
     
-    # Train the child model on a given problem instance
     def _train(self, problem_instance, start_state):
         losses = []
         rewards = []
@@ -99,7 +102,6 @@ class BDQN(EA):
             while not done:
                 num_action += 1
                 action = self._select_action(state)
-                action = 16
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)    
                 
                 state = next_state
@@ -120,11 +122,11 @@ class BDQN(EA):
                 best_actions = action_seq
                 best_reward = reward
                 
-        return best_actions, best_reward, losses, rewards
+        return best_actions, best_reward
     
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
-        # self._init_wandb(problem_instance)
+        self._init_wandb(problem_instance)
         
         self.bdqn = BayesianDQN(self.state_dims, self.action_dims, self.alpha)
         self.target_dqn = copy.deepcopy(self.bdqn)
@@ -132,10 +134,10 @@ class BDQN(EA):
         
         start_state = torch.zeros(self.state_dims)
         self._populate_buffer(problem_instance, start_state)
-        best_actions, best_reward, losses, rewards = self._train(problem_instance, start_state)
+        best_actions, best_reward = self._train(problem_instance, start_state)
         
         wandb.log({'Final Reward': best_reward})
         wandb.log({'Final Actions': best_actions})
         wandb.finish()
         
-        return best_actions, losses, rewards
+        return best_actions

@@ -32,18 +32,13 @@ class Driver:
         self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
         
     def retrieve_modifications(self, problem_instance):
-        # approaches = ['bdqn', 'td3', 'attention_neuron', 'earl']
-        approaches = ['td3']
-        losses = {"A* w/ BDQN": None, "A* w/ TD3": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
-        rewards = {"A* w/ BDQN": None, "A* w/ TD3": None, "A* w/ AttentionNeuron": None, "A* w/ EARL": None}
+        approaches = ['bdqn', 'td3', 'attention_neuron', 'earl']
         modification_set = {approach: None for approach in approaches}
         
         for idx, name in enumerate(approaches):
-            modification_set[name], loss, reward = getattr(self, approaches[idx]).get_adaptations(problem_instance)
-            losses[list(losses.keys())[idx]] = loss
-            rewards[list(losses.keys())[idx]] = reward
+            modification_set[name] = getattr(self, approaches[idx]).get_adaptations(problem_instance)
             
-        return modification_set, losses, rewards
+        return modification_set
     
     # Make graph for A* search
     def _make_graph(self, desc):
@@ -115,7 +110,7 @@ if __name__ == '__main__':
     num_episodes = 10000
     problem_list = problems.get_problem_list(grid_size)
     for problem_instance in problem_list:
-        modification_set, losses, rewards = driver.retrieve_modifications(problem_instance)
+        modification_set = driver.retrieve_modifications(problem_instance)
         avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
         metric.append(avg_path_cost)
 

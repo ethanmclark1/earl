@@ -134,9 +134,9 @@ class AttentionNeuron(EA):
     def _generate_adaptations(self, problem_instance):
         self._init_wandb(problem_instance)
         
-        self.attention_neuron = PINN(self.action_dims)
+        self.attention_neuron = PINN(self.action_dims, self.temperature)
         
-        start_state = torch.zeros(self.state_dim)
+        start_state = torch.zeros(self.state_dims)
         best_params, best_fitness = self._fit_model(problem_instance, start_state)
         best_actions = self._get_action_seq(problem_instance, best_params, start_state)
         

@@ -24,13 +24,8 @@ class EA:
         self.rng = np.random.default_rng(seed=42)
         
     def _init_hyperparams(self):
-        self.tau = 0.008
-        self.alpha = 0.002
-        self.batch_size = 256
         self.sma_window = -50
-        self.num_episodes = 500
         self.action_cost = -0.25
-        self.dummy_episodes = 25
         self.configs_to_consider = 10
         self.action_success_rate = 0.75
 
@@ -66,6 +61,7 @@ class EA:
     # Populate buffer with dummy episodes
     def _populate_buffer(self, problem_instance, start_state):
         name = self.__class__.__name__
+        hallucinate = name == 'BDQN' or name == 'TD3'
 
         for _ in range(self.dummy_episodes):
             done = False
@@ -78,13 +74,13 @@ class EA:
                 reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 
                 # Add action to action sequence to hallucinate traces if using DiscreteRL
-                if name == 'DiscreteRL':
+                if hallucinate:
                     action_seq += [action]
                 else:
                     self.buffer.add(state, action, reward, next_state, done)
                 state = next_state
             
-            if name == 'DiscreteRL':
+            if hallucinate:
                 self.buffer.hallucinate(action_seq, reward)
     
     # Calculate rewards for a given configuration by averaging A* path lengths over multiple trials
