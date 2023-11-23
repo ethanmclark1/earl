@@ -21,7 +21,8 @@ class EA:
         # Add in dummy action to terminate the episode
         self.action_dims = env.observation_space.n + 1
         
-        self.rng = np.random.default_rng(seed=42)
+        self.random_seed = 42
+        self.rng = np.random.default_rng(seed=self.random_seed)
         
     def _init_hyperparams(self):
         self.sma_window = -50

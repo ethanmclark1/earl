@@ -89,7 +89,7 @@ class AttentionNeuron(EA):
         solver = cma.CMAEvolutionStrategy(
             x0=np.zeros(model_params), 
             sigma0=1.0, 
-            inopts={'popsize': self.n_population, 'randn': np.random.randn}
+            inopts={'popsize': self.n_population, 'randn': np.random.randn, 'seed': self.random_seed}
             )
         
         for _ in range(self.n_generations):
