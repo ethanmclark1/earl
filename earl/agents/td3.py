@@ -146,7 +146,8 @@ class TD3(EA):
             self.buffer.update_priorities(tree_idxs, td_error)
             self._decay_temperature()
             
-            actor_losses.append(loss['actor'])
+            if loss['actor'] is not None:
+                actor_losses.append(loss['actor'])
             critic_losses.append(loss['critic'])
             rewards.append(reward)
             avg_actor_loss = np.mean(actor_losses[self.sma_window:])
