@@ -24,10 +24,10 @@ class AttentionNeuron(EA):
         self.attention_neuron = None
         
         self.n_processes = 4
-        self.n_population = 30
-        self.temperature = 0.225
-        self.n_generations = 250
-        self.fitness_samples = 20
+        self.n_population = 40
+        self.temperature = 0.10
+        self.n_generations = 300
+        self.fitness_samples = 50
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
