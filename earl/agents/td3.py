@@ -67,8 +67,6 @@ class TD3(EA):
         loss = {}
         loss['actor'] = None
         loss['critic'] = None
-
-        self.total_it += 1
         
         batch, weights, tree_idxs = self.buffer.sample(self.batch_size)
         state, action, reward, next_state, done = batch
@@ -118,7 +116,9 @@ class TD3(EA):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
             for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-                
+        
+        self.total_it += 1
+
         return loss, td_error.numpy(), tree_idxs
     
     def _train(self, problem_instance, start_state):
