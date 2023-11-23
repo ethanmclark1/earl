@@ -41,21 +41,21 @@ class PrioritizedReplayBuffer:
         # Manging buffer size and current position
         self.count = 0
         self.real_size = 0
+        self.max_seq_len = 8
         self.size = buffer_size
     
     def _sample_permutations(self, action_seq):
-        max_seq_len = 9
         permutations = set()
         permutations.add(tuple(action_seq))
         tmp_action_seq = action_seq.copy()
         terminating_action = tmp_action_seq.pop()
         
         # If the action sequence is short, we can afford to sample all permutations
-        if len(tmp_action_seq) <= max_seq_len:
+        if len(tmp_action_seq) <= self.max_seq_len:
             permutations_no_termination = itertools.permutations(tmp_action_seq)
             permutations = {permutation + (terminating_action,) for permutation in permutations_no_termination}
         else:
-            while len(permutations) < math.factorial(max_seq_len):
+            while len(permutations) < math.factorial(self.max_seq_len):
                 random.shuffle(tmp_action_seq)
                 permutations.add(tuple(tmp_action_seq + [terminating_action]))
                 

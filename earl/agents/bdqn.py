@@ -21,8 +21,8 @@ class BDQN(EA):
         self.batch_size = 256
         self.num_episodes = 500
         self.dummy_episodes = 25
+        self.memory_size = 5000000
         self.kl_coefficient = 0.001
-        self.memory_size = 10000000
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)

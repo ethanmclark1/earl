@@ -30,7 +30,7 @@ class TD3(EA):
         self.critic_lr = 0.0004
         self.num_episodes = 500
         self.dummy_episodes = 25
-        self.memory_size = 500000
+        self.memory_size = 5000000
         self.temperature_start = 1
         self.temperature_decay = 0.975
         
