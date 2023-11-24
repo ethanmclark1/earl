@@ -21,15 +21,15 @@ class Driver:
             render_mode=render_mode
             )
         
-        num_obstacles = 5 if grid_size == '4x4' else 14
         
         self.grid_size = grid_size
         self.num_cols = self.env.unwrapped.ncol
+        self.num_obstacles = 5 if grid_size == '4x4' else 14
         
-        self.earl = EARL(self.env, grid_size, num_obstacles)
-        self.bdqn = BDQN(self.env, grid_size, num_obstacles)
-        self.td3 = TD3(self.env, grid_size, num_obstacles)
-        self.attention_neuron = AttentionNeuron(self.env, grid_size, num_obstacles)
+        self.earl = EARL(self.env, grid_size, self.num_obstacles)
+        self.bdqn = BDQN(self.env, grid_size, self.num_obstacles)
+        self.td3 = TD3(self.env, grid_size, self.num_obstacles)
+        self.attention_neuron = AttentionNeuron(self.env, grid_size, self.num_obstacles)
         
     def retrieve_modifications(self, problem_instance):
         approaches = ['bdqn', 'td3', 'attention_neuron', 'earl']
@@ -58,10 +58,10 @@ class Driver:
         start = list(zip(start_row, start_col))[0]
         goal_row, goal_col = np.where(desc == b'G')
         goal = list(zip(goal_row, goal_col))[0]
-        transporter_row, transporter_col = np.where(desc == b'T')
-        transporter = set(zip(transporter_row, transporter_col))
+        bridge_row, bridge_col = np.where(desc == b'T')
+        bridge = set(zip(bridge_row, bridge_col))
         
-        return graph, start, goal, transporter
+        return graph, start, goal, bridge
     
     def act(self, problem_instance, modification_set, num_episodes):
         path_len = {'A* w/ BDQN': [], 'A* w/ TD3': [], 'A* w/ AttentionNeuron': [], 'A* w/ EARL': []}
@@ -90,9 +90,9 @@ class Driver:
                 else:
                     current_desc = earl_desc
                     
-                graph, start, goal, transporter = self._make_graph(current_desc)
+                graph, start, goal, bridge = self._make_graph(current_desc)
                 path = set(nx.astar_path(graph, start, goal))
-                path_len[approach] += [len(path - transporter)]
+                path_len[approach] += [len(path - bridge)]
         
         avg_path_cost['A* w/ BDQN'] = np.mean(path_len['A* w/ BDQN'])
         avg_path_cost['A* w/ TD3'] = np.mean(path_len['A* w/ TD3'])
