@@ -19,7 +19,7 @@ class BDQN(EA):
         self.alpha = 0.002
         self.gamma = 0.9875
         self.batch_size = 256
-        self.num_episodes = 500
+        self.num_episodes = 300
         self.dummy_episodes = 25
         self.memory_size = 5000000
         self.kl_coefficient = 0.001

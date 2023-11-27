@@ -28,7 +28,7 @@ class TD3(EA):
         self.batch_size = 256
         self.actor_lr = 0.0003
         self.critic_lr = 0.0004
-        self.num_episodes = 500
+        self.num_episodes = 300
         self.dummy_episodes = 25
         self.memory_size = 5000000
         self.temperature_start = 1

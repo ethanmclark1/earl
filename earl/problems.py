@@ -59,7 +59,7 @@ def get_entity_positions(problem_instance, grid_size, num_obstacles):
 def get_instantiated_desc(problem_instance, grid_size, num_obstacles):
     instance_desc = copy.deepcopy(desc[grid_size])
     
-    start, goal, obstacles = get_entity_positions(problem_instance, num_obstacles)
+    start, goal, obstacles = get_entity_positions(problem_instance, grid_size, num_obstacles)
         
     tmp_lst = list(instance_desc[start[0]])
     tmp_lst[start[1]] = 'S'

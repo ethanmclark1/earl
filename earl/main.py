@@ -111,7 +111,7 @@ if __name__ == '__main__':
     problem_list = problems.get_problem_list(grid_size)
     for problem_instance in problem_list:
         modification_set = driver.retrieve_modifications(problem_instance)
-        avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
-        metric.append(avg_path_cost)
+        # avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
+        # metric.append(avg_path_cost)
 
     plot_metrics(problem_list, metric)

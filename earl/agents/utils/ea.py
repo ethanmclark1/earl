@@ -31,7 +31,6 @@ class EA:
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
-        problem_instance = 'cheese'
         directory = f'earl/agents/history/{approach.lower()}'
         filename = f'{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
