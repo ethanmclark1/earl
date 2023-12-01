@@ -24,10 +24,10 @@ class AttentionNeuron(EA):
         self.attention_neuron = None
         
         self.n_processes = 4
-        self.n_population = 40
+        self.n_population = 30
         self.temperature = 0.10
-        self.n_generations = 300
-        self.fitness_samples = 50
+        self.n_generations = 400
+        self.fitness_samples = 30
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -42,7 +42,6 @@ class AttentionNeuron(EA):
     def _select_action(self, state):
         with torch.no_grad():
             action = self.attention_neuron(state)       
-                 
         return action
     
     # Set the parameters of the model

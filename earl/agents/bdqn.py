@@ -17,9 +17,7 @@ class BDQN(EA):
         
         self.tau = 0.008
         self.alpha = 0.002
-        self.gamma = 0.9875
-        self.batch_size = 256
-        self.num_episodes = 300
+        self.batch_size = 512
         self.dummy_episodes = 25
         self.memory_size = 5000000
         self.kl_coefficient = 0.001
@@ -28,8 +26,8 @@ class BDQN(EA):
         config = super()._init_wandb(problem_instance)
         config.tau = self.tau
         config.alpha = self.alpha
-        config.gamma = self.gamma 
         config.batch_size = self.batch_size
+        config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.num_episodes = self.num_episodes
         config.dummy_episodes = self.dummy_episodes
@@ -46,6 +44,7 @@ class BDQN(EA):
         state, action, reward, next_state, done = batch
         
         q_values = self.bdqn(state)
+        # Indexes into the Q-values based on the actions taken
         q = q_values.gather(1, action.long()).view(-1)
 
         # Select actions using online network
@@ -55,7 +54,7 @@ class BDQN(EA):
         target_next_q_values = self.target_dqn(next_state)
         next_q = target_next_q_values.gather(1, next_actions.unsqueeze(1)).view(-1).detach()
         
-        q_hat = reward + (1 - done) * self.gamma * next_q
+        q_hat = reward + (1 - done) * next_q
         
         td_error = torch.abs(q_hat - q).detach()
         

@@ -23,26 +23,24 @@ class TD3(EA):
         self.buffer = None
         
         self.tau = 0.008
-        self.gamma = 0.9875
         self.policy_freq = 2
-        self.batch_size = 256
+        self.batch_size = 512
         self.actor_lr = 0.0003
         self.critic_lr = 0.0004
-        self.num_episodes = 300
         self.dummy_episodes = 25
         self.memory_size = 5000000
         self.temperature_start = 1
-        self.temperature_decay = 0.975
+        self.temperature_decay = 0.99
         
         self.action_enc = OneHotEncoder(categories=[range(self.action_dims)])
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.tau = self.tau
-        config.gamma = self.gamma
         config.actor_lr = self.actor_lr
         config.critic_lr = self.critic_lr
         config.batch_size = self.batch_size
+        config.action_cost = self.action_cost
         config.memory_size = self.memory_size
         config.policy_freq = self.policy_freq
         config.num_episodes = self.num_episodes
@@ -56,10 +54,10 @@ class TD3(EA):
         
     def _select_action(self, state):
         with torch.no_grad():
-            action_probs = self.actor(state)
-            scaled_probs = torch.div(action_probs, self.temperature)
-            logits = F.softmax(scaled_probs, dim=-1)
-            action = torch.multinomial(logits, 1).item()
+            logits = self.actor(state)
+            scaled_logits = torch.div(logits, self.temperature)
+            action_probs = F.softmax(scaled_logits, dim=-1)
+            action = torch.multinomial(action_probs, 1).item()
                     
         return action
         
@@ -74,16 +72,16 @@ class TD3(EA):
         reward = reward.unsqueeze(-1)
         
         with torch.no_grad():
-            next_action_probs = self.actor_target(next_state)
-            scaled_probs = torch.div(next_action_probs, self.temperature)
-            logits = F.softmax(scaled_probs, dim=-1)
-            next_action = torch.multinomial(logits, 1)
+            next_action_logits = self.actor_target(next_state)
+            scaled_next_action_logits = torch.div(next_action_logits, self.temperature)
+            next_action_probs = F.softmax(scaled_next_action_logits, dim=-1)
+            next_action = torch.multinomial(next_action_probs, 1)
             
             onehot_next_action = self.action_enc.fit_transform(next_action).toarray()
             next_action = torch.tensor(onehot_next_action, dtype=torch.float32)       
             target_Q1, target_Q2 = self.critic_target(next_state, next_action)
             target_Q = torch.min(target_Q1, target_Q2)
-            target_Q = reward + (1 - done) * self.gamma * target_Q
+            target_Q = reward + (1 - done) * target_Q
         
         onehot_action = self.action_enc.fit_transform(action).toarray()
         onehot_action = torch.tensor(onehot_action, dtype=torch.float32)
