@@ -18,7 +18,7 @@ class EA:
         self.grid_size = grid_size
         self.grid_dims = env.unwrapped.desc.shape
         self.state_dims = env.observation_space.n
-        # Add in dummy action to terminate the episode
+        # Add in a dummy (idle) action to terminate the episode
         self.action_dims = env.observation_space.n + 1
         
         self.random_seed = 42
@@ -26,8 +26,9 @@ class EA:
         
     def _init_hyperparams(self):
         self.sma_window = -50
-        self.action_cost = -0.25
-        self.configs_to_consider = 10
+        self.num_episodes = 400
+        self.action_cost = -0.1
+        self.configs_to_consider = 50
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
@@ -107,7 +108,7 @@ class EA:
             
             # Bridges cannot cover start or goal cells 
             if desc[start] == 1 or desc[goal] == 1:
-                rewards += [-200]
+                rewards += [-25]
                 continue
             
             desc[start], desc[goal] = 2, 3
