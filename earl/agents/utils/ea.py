@@ -26,7 +26,6 @@ class EA:
         
     def _init_hyperparams(self):
         self.sma_window = -50
-        self.num_episodes = 400
         self.action_cost = -0.1
         self.configs_to_consider = 50
         self.action_success_rate = 0.75
@@ -158,7 +157,7 @@ class EA:
         try:
             adaptations = self._load(approach, problem_instance)
         except FileNotFoundError:
-            print(f'No stored {approach} adaptation for {problem_instance.capitalize()} problem instance.')
+            print(f'No stored adaptation for {approach} on the {problem_instance.capitalize()} problem instance.')
             print('Generating new adaptation...')
             adaptations = self._generate_adaptations(problem_instance)
             self._save(approach, problem_instance, adaptations)
