@@ -15,10 +15,10 @@ class BasicLFA(EA):
         self.weights = None
         self.num_features = (2*self.state_dims) + self.action_dims
         
-        self.alpha = 0.001
+        self.alpha = 0.0005
         self.epsilon_start = 1
-        self.num_episodes = 5000
-        self.epsilon_decay = 0.999
+        self.num_episodes = 10000
+        self.epsilon_decay = 0.9997
         self.sma_window = int(self.num_episodes * self.sma_percentage)
 
     def _init_wandb(self, problem_instance):
@@ -78,9 +78,7 @@ class BasicLFA(EA):
         td_error = td_target - current_q_value
         
         self.weights = self.weights + self.alpha * td_error * current_features
-        
-        return td_error
-    
+            
     def _train(self, problem_instance):
         rewards = []
         
@@ -139,7 +137,7 @@ class HallucinatedLFA(BasicLFA):
     def __init__(self, env, grid_size, num_obstacles):
         super(HallucinatedLFA, self).__init__(env, grid_size, num_obstacles)
         
-        self.max_seq_len = 8
+        self.max_seq_len = 9
         
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -208,3 +206,42 @@ class HallucinatedLFA(BasicLFA):
 class CommutativeLFA(BasicLFA):
     def __init__(self, env, grid_size, num_obstacles):
         super(CommutativeLFA, self).__init__(env, grid_size, num_obstacles)
+        
+        self.ptr_lst = {}
+        self.previous_sample = None
+        
+    def _update_weights(self, state, action, reward, next_state, done):
+        super()._update_weights(state, action, reward, next_state, done)
+        
+        if self.previous_sample is None:
+            s = state
+            a = action
+            r_0 = reward
+            s_1 = next_state
+            
+            self.previous_sample = (s, a, r_0)
+            self.ptr_lst[(s, a)] = (s_1, r_0)
+        else:
+            s, a, r_0 = self.previous_sample
+            s_1 = state
+            b = action
+            r_1 = reward
+            s_prime = next_state
+            
+            if (s, b) in self.ptr_lst:
+                s_2, r_2 = self.ptr_lst[(s, b)]
+                
+                current_features = self._extract_features(s_2, a)
+                current_q_value = np.dot(self.weights, current_features)
+                _, max_next_q_value = self._get_max_q_value(s_prime)
+                
+                td_target = r_0 - r_2 + r_1 + (1 - done) * max_next_q_value
+                td_error = td_target - current_q_value
+                
+                self.weights = self.weights + self.alpha * td_error * current_features
+                
+            self.previous_sample = (s_1, b, r_1)
+            self.ptr_lst[(s_1, b)] = (s_prime, r_1)
+    
+        if done:
+            self.previous_sample = None

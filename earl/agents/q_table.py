@@ -3,7 +3,6 @@ import copy
 import wandb
 import random
 import itertools
-import collections
 import numpy as np
 
 from agents.utils.ea import EA
@@ -112,7 +111,7 @@ class HallucinatedQTable(BasicQTable):
     def __init__(self, env, problem_space, num_obstacles):
         super(HallucinatedQTable, self).__init__(env, problem_space, num_obstacles)
         
-        self.max_seq_len = 8
+        self.max_seq_len = 9
         
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -182,35 +181,43 @@ class CommutativeQTable(BasicQTable):
     def __init__(self, env, problem_space, num_obstacles):
         super(CommutativeQTable, self).__init__(env, problem_space, num_obstacles)
         
-        self.previous_sample = None
         self.ptr_lst = {}
-        
-    def _update_q_table(self, state, action, reward, next_state, done):
-        state_idx = self._get_state_idx(state)
-        action_idx = action
-        next_state_idx = self._get_state_idx(next_state)
-        
-        # Update Rule 0: Q-Update
-        td_target = reward + (1 - done) * self.q_table[next_state_idx].max()
-        td_error = td_target - self.q_table[state_idx, action_idx]
-        
-        self.q_table[state_idx, action_idx] = self.q_table[state_idx, action_idx] + self.alpha * td_error
-        
-        # TODO: Need to get r_0, r_1, r_2
-        # Update Rule 1: Commutative Update
-        if self.previous_sample is not None:
-            prev_state_idx, prev_action, prev_reward = self.previous_sample
-            if (prev_state_idx, prev_action) in self.ptr_lst:
-                next_state_idx, reward = self.ptr_lst[(prev_state_idx, prev_action)]
-                
-                td_target = reward + (1 - done) * self.q_table[next_state_idx].max()
-                td_error = td_target - self.q_table[prev_state_idx, prev_action]
-                
-                self.q_table[prev_state_idx, prev_action] = self.q_table[prev_state_idx, prev_action] + self.alpha * td_error
-        
-        if not done:
-            self.previous_sample = (state_idx, action, reward)
-            self.ptr_lst[(state_idx, action)] = (next_state_idx, reward)
-        else:
-            self.previous_sample = None
+        self.previous_sample = None
     
+    """
+    Update Rule 0: Traditional Q-Update
+    Q(s_1, b) = Q(s_1, b) + alpha * (r_1 + * max_a Q(s', a) - Q(s_1, b))
+    Update Rule 1: Commutative Q-Update
+    Q(s_2, a) = Q(s_2, a) + alpha * (r_0 - r_2 + r_1 + max_a Q(s', a) - Q(s_2, a))
+    """
+    def _update_q_table(self, state, action, reward, next_state, done):
+        super()._update_q_table(state, action, reward, next_state, done)
+        
+        if self.previous_sample is None:
+            s = self._get_state_idx(state)
+            a = action
+            r_0 = reward
+            s_1 = self._get_state_idx(next_state)
+            
+            self.previous_sample = (s, a, r_0)
+            self.ptr_lst[(s, a)] = (s_1, r_0)
+        else:
+            s, a, r_0 = self.previous_sample
+            s_1 = self._get_state_idx(state)
+            b = action
+            r_1 = reward
+            s_prime = self._get_state_idx(next_state)
+            
+            if (s, b) in self.ptr_lst:
+                s_2, r_2 = self.ptr_lst[(s, b)]
+                
+                td_target = r_0 - r_2 + r_1 + (1 - done) * self.q_table[s_prime].max()
+                td_error = td_target - self.q_table[s_2, a]
+                
+                self.q_table[s_2, a] = self.q_table[s_2, a] + self.alpha * td_error
+                
+            self.previous_sample = (s_1, b, r_1)
+            self.ptr_lst[(s_1, b)] = (s_prime, r_1)
+            
+        if done:
+            self.previous_sample = None
