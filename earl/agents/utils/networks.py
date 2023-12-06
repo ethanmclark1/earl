@@ -7,15 +7,14 @@ import torch.nn.functional as F
 # Permutation Invariant Neural Network 
 # https://attentionneuron.github.io/
 class PINN(nn.Module):
-    def __init__(self, action_dims, temperature):
+    def __init__(self, action_dims):
         super(PINN, self).__init__()
         self.query_size = 8
         self.message_size = 32
-        self.temperature = temperature
         self.action_dims = action_dims
         
         self.hx = None
-        self.previous_action = torch.zeros(self.action_dims)
+        self.previous_action = torch.zeros(1, self.action_dims)
         
         self.lstm = nn.LSTMCell(input_size=self.action_dims+1, hidden_size=self.query_size)
         self.q = torch.from_numpy(self.pos_table(16, self.query_size)).float()
@@ -41,7 +40,7 @@ class PINN(nn.Module):
     
     def reset(self):
         self.hx = None
-        self.previous_action = torch.zeros(self.action_dims)
+        self.previous_action = torch.zeros(1, self.action_dims)
 
     def forward(self, state):
         state = state.unsqueeze(-1)
@@ -51,7 +50,7 @@ class PINN(nn.Module):
             self.hx = self.h0(state_dims)
             
         # Add previous action to the observation as the input for the LSTM
-        x_pa = torch.cat([state, self.previous_action.repeat(self.action_dims-1, 1)], dim=-1)
+        x_pa = torch.cat([state, self.previous_action.repeat(state_dims, 1)], dim=-1)
         self.hx = self.lstm(x_pa, self.hx)
         
         # Compute attention matrix
@@ -67,8 +66,7 @@ class PINN(nn.Module):
         m = torch.tanh(torch.matmul(attention_weights, state))
         
         logits = self.head(m.T)
-        scaled_logits = torch.div(logits, self.temperature)
-        action_probs = F.softmax(scaled_logits, dim=-1)
+        action_probs = F.softmax(logits, dim=-1)
         action = torch.multinomial(action_probs, 1).item()
         self.previous_action = torch.eye(self.action_dims)[action]
         return action

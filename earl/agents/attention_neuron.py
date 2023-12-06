@@ -24,24 +24,23 @@ class AttentionNeuron(EA):
         self.attention_neuron = None
         
         self.n_processes = 4
-        self.n_population = 30
-        self.temperature = 0.10
-        self.n_generations = 400
-        self.fitness_samples = 30
+        self.n_population = 50
+        self.n_generations = 500
+        self.fitness_samples = 50
+        self.sma_window = int(self.n_generations * self.sma_percentage)
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.action_cost = self.action_cost
         config.n_processes = self.n_processes
-        config.temperature = self.temperature
         config.n_population = self.n_population
         config.n_generations = self.n_generations
         config.fitness_samples = self.fitness_samples
-        config.configs_to_consider = self.configs_to_consider
+        config.action_success_rate = self.action_success_rate
         
     def _select_action(self, state):
         with torch.no_grad():
-            action = self.attention_neuron(state)       
+            action = self.attention_neuron(state)   
         return action
     
     # Set the parameters of the model
@@ -60,7 +59,7 @@ class AttentionNeuron(EA):
             i += param_size
     
     def _calc_fitness(self, model, problem_instance, start_state):
-        total_fitness = 0
+        total_fitness = []
         for _ in range(self.fitness_samples):
             done = False
             model.reset()
@@ -70,15 +69,16 @@ class AttentionNeuron(EA):
             while not done:
                 num_action += 1
                 action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                fitness, next_state, done = self._step(problem_instance, state, action, num_action)
                 state = next_state
                 
-            total_fitness += reward
+            total_fitness += [fitness]
         
-        avg_fitness = total_fitness / self.fitness_samples
+        avg_fitness = np.mean(total_fitness)
         return avg_fitness      
     
-    def _fit_model(self, problem_instance, start_state):        
+    def _fit_model(self, problem_instance):        
+        fitnesses = []
         best_params = None
         best_fitness = -np.inf
         
@@ -90,7 +90,8 @@ class AttentionNeuron(EA):
             sigma0=1.0, 
             inopts={'popsize': self.n_population, 'randn': np.random.randn, 'seed': self.random_seed}
             )
-        
+        start_state = torch.zeros(self.state_dims)
+
         for _ in range(self.n_generations):
             # Get initial population (parameters for each model)
             pop_params = solver.ask()
@@ -101,46 +102,48 @@ class AttentionNeuron(EA):
             args = [(model, problem_instance, start_state) for model in models]
             pop_fitness = pool.starmap(self._calc_fitness, args)   
             
+            # Negate fitness due to CMA-ES minimizing the cost
             solver.tell(pop_params, [-i for i in pop_fitness])
             
             max_pop_fitness = max(pop_fitness)    
-            wandb.log({'Max Fitness': max_pop_fitness})
+            fitnesses.append(max_pop_fitness)
+            avg_fitness = np.mean(fitnesses[-self.sma_window:])
+            wandb.log({'Average Reward': avg_fitness})
+            
             if max_pop_fitness > best_fitness:
                 best_fitness = max_pop_fitness
                 best_params = pop_params[pop_fitness.index(max_pop_fitness)]
                 
-        return best_params, best_fitness
+        return best_params
     
-    def _get_action_seq(self, problem_instance, best_params, start_state):
-        action_seq = []
+    def _get_adaptation(self, problem_instance, best_params):
+        self.attention_neuron.reset()
         self._set_params(self.attention_neuron, best_params)
         
         done = False
         num_action = 0
-        state = start_state
-        self.attention_neuron.reset()
-        
+        action_seq = []
+        state = torch.zeros(self.state_dims)
         while not done:
-            action = self._select_action(state)
-            _, next_state, done = self._step(problem_instance, state, action, num_action)
-            state = next_state
             num_action += 1
-            action_seq.append(action)
+            action = self._select_action(state)
+            reward, next_state, done = self._step(problem_instance, state, action, num_action)
+            state = next_state
+            action_seq += [action]
             
-        return action_seq
+        return action_seq, reward
             
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
         self._init_wandb(problem_instance)
         
-        self.attention_neuron = PINN(self.action_dims, self.temperature)
+        self.attention_neuron = PINN(self.action_dims)
         
-        start_state = torch.zeros(self.state_dims)
-        best_params, best_fitness = self._fit_model(problem_instance, start_state)
-        best_actions = self._get_action_seq(problem_instance, best_params, start_state)
+        best_params = self._fit_model(problem_instance)
+        adaptation, reward = self._get_adaptation(problem_instance, best_params)
         
-        wandb.log({'Final Reward': best_fitness})
-        wandb.log({'Final Actions': best_actions})
+        wandb.log({'Adaptation': adaptation})
+        wandb.log({'Reward': reward})
         wandb.finish()
         
-        return best_actions
+        return adaptation
