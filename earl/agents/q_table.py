@@ -126,10 +126,10 @@ class HallucinatedQTable(BasicQTable):
                 permutations[tuple(permutation + (terminating_action,))] = None
         else:
             i = 1
-            max_permutations = math.factorial(self.max_seq_len)
-            while i < max_permutations:
+            max_samples = math.factorial(self.max_seq_len)
+            while i < max_samples:
                 random.shuffle(tmp_action_seq)
-                permutations[tuple(tmp_action_seq + [terminating_action])] = None
+                permutations[tuple(tmp_action_seq + (terminating_action,))] = None
                 i += 1   
         
         return list(permutations.keys())       
@@ -181,6 +181,7 @@ class CommutativeQTable(BasicQTable):
     def __init__(self, env, problem_space, num_obstacles):
         super(CommutativeQTable, self).__init__(env, problem_space, num_obstacles)
         
+        # (s, a) -> (s', r)
         self.ptr_lst = {}
         self.previous_sample = None
     

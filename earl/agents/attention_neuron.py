@@ -23,9 +23,9 @@ class AttentionNeuron(EA):
         
         self.attention_neuron = None
         
-        self.n_processes = 4
+        self.n_processes = 16
         self.n_population = 50
-        self.n_generations = 500
+        self.n_generations = 1000
         self.fitness_samples = 50
         self.sma_window = int(self.n_generations * self.sma_percentage)
         
