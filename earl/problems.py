@@ -22,44 +22,100 @@ desc = {
 
 problems = {
     '4x4': {
-        'cross': [(0,1),(1,1),(2,1),(3,1),(1,2),(1,3)],
-        'gate': [(0,1),(1,1),(2,1),(3,1),(0,2),(1,2),(2,2),(3,2)],
-        'snake': [(0,0),(0,1),(1,1),(1,2),(2,1),(2,2),(3,2),(3,3)],
-        'diagonal': [(0,0),(1,1),(2,2),(3,3),(0,3),(1,2),(2,1),(3,0)],                     
+        'cross': {
+            'free_space': [
+                [(0,0),(1,0),(2,0),(3,0)],
+                [(0,2),(0,3)],
+                [(2,2),(3,2),(2,3),(3,3)]
+                ],
+            'obstacles': [(0,1),(1,1),(2,1),(3,1),(1,2),(1,3)]
+        },
+        'gate': {
+            'free_space': [
+                [(0,0),(1,0),(2,0),(3,0)],
+                [(0,3),(1,3),(2,3),(3,3)],
+                ],
+            'obstacles': [(0,1),(1,1),(2,1),(3,1),(0,2),(1,2),(2,2),(3,2)]
+        },
+        'snake': {
+            'free_space': [
+                [(1,0),(2,0),(3,0),(3,1)],
+                [(0,2),(0,3),(1,3),(2,3)]
+                ],
+            'obstacles': [(0,0),(0,1),(1,1),(1,2),(2,1),(2,2),(3,2),(3,3)]
+        },
+        'diagonal': {
+            'free_space': [
+                [(1,0),(2,0)],
+                [(3,1),(3,2)],
+                [(0,1),(0,2)],
+                [(1,3),(2,3)]
+                ],
+            'obstacles': [(0,0),(1,1),(2,2),(3,3),(0,3),(1,2),(2,1),(3,0)]
+        }
     },
     '8x8': {
-        'cross': [(0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),(3,0),(3,1),(3,2),(3,4),(3,5),(3,6),(3,7)],
-        'gate': [(0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(4,4),(5,4),(6,4),(7,4)],
-        'snake': [(0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(3,7),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1),(4,0)],
-        'diagonal': [(0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(0,7),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1),(7,0)],
+        'cross': {
+            'free_space': [
+                [(0,0),(1,0),(2,0),(0,1),(1,1),(2,1),(0,2),(1,2),(2,2)],
+                [(4,0),(5,0),(6,0),(7,0),(4,1),(5,1),(6,1),(7,1),(4,2),(5,2),(6,2),(7,2)],
+                [(0,4),(1,4),(2,4),(0,5),(1,5),(2,5),(0,6),(1,6),(2,6),(0,7),(1,7),(2,7)],
+                [(4,4),(5,4),(6,4),(7,4),(4,5),(5,5),(6,5),(7,5),(4,6),(5,6),(6,6),(7,6),(4,7),(5,7),(6,7),(7,7)]
+            ],
+            'obstacles': [(0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),(3,0),(3,1),(3,2),(3,4),(3,5),(3,6),(3,7)]
+        },
+        'gate': {
+            'free_space': [
+                [(0,0),(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0),(0,1),(1,1),(2,1),(3,1),(4,1),(5,1),(6,1),(7,1),(0,2),(1,2),(2,2),(3,2),(4,2),(5,2),(6,2),(7,2)],
+                [(0,5),(1,5),(2,5),(3,5),(4,5),(5,5),(6,5),(7,5),(0,6),(1,6),(2,6),(3,6),(4,6),(5,6),(6,6),(7,6),(0,7),(1,7),(2,7),(3,7),(4,7),(5,7),(6,7),(7,7)]
+            ],
+            'obstacles': [(0,3),(1,3),(2,3),(3,3),(4,3),(5,3),(6,3),(7,3),(0,4),(1,4),(2,4),(3,4),(4,4),(5,4),(6,4),(7,4)]
+        },
+        'snake': {
+            'free_space': [
+                [(0,0),(1,0),(2,0),(3,0),(2,1),(3,1),(2,2),(3,2),(3,3),(4,3),(3,4),(4,4),(4,5),(5,5),(4,6),(5,6),(4,7),(5,7),(6,7),(7,7)],
+                [(0,2),(0,3),(0,4),(1,4),(0,5),(1,5),(0,6),(1,6),(2,6),(0,7),(1,7),(2,7)],
+                [(5,0),(6,0),(7,0),(5,1),(6,1),(7,1),(6,2),(7,2),(6,3),(7,3),(7,4),(7,5)]
+            ],
+            'obstacles': [(0,1),(1,1),(1,2),(1,3),(2,3),(2,4),(2,5),(3,5),(3,6),(3,7),(7,6),(6,6),(6,5),(6,4),(5,4),(5,3),(5,2),(4,2),(4,1),(4,0)]
+        },
+        'diagonal': {
+            'free_space': [
+                [(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(2,1),(3,1),(4,1),(5,1),(3,2),(4,2)],
+                [(7,1),(6,2),(7,2),(5,3),(6,3),(7,3),(5,4),(6,4),(7,4),(6,5),(7,5),(7,6)],
+                [(0,1),(0,2),(1,2),(0,3),(1,3),(2,3),(0,4),(1,4),(2,4),(0,5),(1,5),(0,6)],
+                [(3,5),(4,5),(2,6),(3,6),(4,6),(5,6),(1,7),(2,7),(3,7),(4,7),(5,7),(6,7)],
+            ],
+            'obstacles': [(0,0),(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(0,7),(1,6),(2,5),(3,4),(4,3),(5,2),(6,1),(7,0)]
+        }
     }
 }
+
 
 def get_problem_list(grid_size):
     return list(problems[grid_size].keys())
 
-def get_entity_positions(problem_instance, grid_size, num_obstacles):
-    obstacle_constr = problems[grid_size][problem_instance]
+def get_entity_positions(problem_instance, rng, grid_size, percent_obstacles):
+    obstacle_constr = problems[grid_size][problem_instance]['obstacles']
+    num_obstacles = int(len(obstacle_constr) * percent_obstacles)
     
     tmp_obs_constr = np.array(obstacle_constr)
-    obs_idx = np.random.choice(range(len(obstacle_constr)), size=num_obstacles, replace=False)
+    obs_idx = rng.choice(range(len(obstacle_constr)), size=num_obstacles, replace=False)
     obstacles = tmp_obs_constr[obs_idx]
     
-    dims = 4 if grid_size == '4x4' else 8
-    all_pos = set((x, y) for x in range(dims) for y in range(dims))
-    available_pos = list(all_pos - set(obstacle_constr))
-
-    # Randomly select start and goal from available positions
-    start_idx, goal_idx = np.random.choice(range(len(available_pos)), size=2, replace=False)
-    start = available_pos[start_idx]
-    goal = available_pos[goal_idx]
+    free_space = problems[grid_size][problem_instance]['free_space']
+    start_block_idx, goal_block_idx = rng.choice(range(len(free_space)), size=2, replace=False)
+    start_block = free_space[start_block_idx]
+    start = tuple(rng.choice(start_block))
+    goal_block = free_space[goal_block_idx]
+    goal = tuple(rng.choice(goal_block))
     
     return start, goal, obstacles
     
-def get_instantiated_desc(problem_instance, grid_size, num_obstacles):
+def get_instantiated_desc(problem_instance, grid_size, percent_obstacles):
     instance_desc = copy.deepcopy(desc[grid_size])
     
-    start, goal, obstacles = get_entity_positions(problem_instance, grid_size, num_obstacles)
+    start, goal, obstacles = get_entity_positions(problem_instance, grid_size, percent_obstacles)
         
     tmp_lst = list(instance_desc[start[0]])
     tmp_lst[start[1]] = 'S'
