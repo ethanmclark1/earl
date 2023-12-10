@@ -20,8 +20,7 @@ class EA:
         self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
         
     def _init_hyperparams(self):
-        self.max_actions = 10
-        self.action_cost = 0.35
+        self.action_cost = 0.10
         self.sma_percentage = 0.05
         self.percent_obstacles = 0.75
         self.configs_to_consider = 25
@@ -111,13 +110,17 @@ class EA:
     
     # r(s,a,s') = u(s') - u(s) - c(a)
     def _get_reward(self, problem_instance, state, done, next_state, num_action):
-        if not np.array_equal(state, next_state):
+        util_s_prime = self._calc_utility(problem_instance, next_state)
+        
+        # Agent selects a non-terminating action
+        if not done:
             util_s = self._calc_utility(problem_instance, state)
-            util_s_prime = self._calc_utility(problem_instance, next_state)
             reward = util_s_prime - util_s - (self.action_cost * num_action)
-        elif not done:
-            reward = -self.action_cost * num_action
-        else:
+        # Agent selects a terminating action as the only action
+        elif done and num_action == 1:
+            reward = util_s_prime
+        # Agent selects a non-terminating action and it isn't the only action
+        elif done and num_action != 1:
             reward = 0
             
         return reward
@@ -132,7 +135,7 @@ class EA:
         if action != terminating_action and self.action_success_rate > self.rng.random():
             next_state[action] = 1
         
-        done = action == terminating_action or num_action == self.max_actions
+        done = action == terminating_action
         reward = self._get_reward(problem_instance, state, done, next_state, num_action)  
         
         return reward, next_state, done

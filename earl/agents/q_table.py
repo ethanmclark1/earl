@@ -1,5 +1,4 @@
 import math
-import copy
 import wandb
 import random
 import itertools
@@ -19,7 +18,7 @@ class BasicQTable(EA):
         
         self.alpha = 0.0005
         self.epsilon_start = 1
-        self.num_episodes = 7500
+        self.num_episodes = 10000
         self.epsilon_decay = 0.999
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
@@ -139,7 +138,7 @@ class BasicQTable(EA):
 class HallucinatedQTable(BasicQTable):
     def __init__(self, env, rng):
         super(HallucinatedQTable, self).__init__(env, rng)
-        self.max_seq_len = 5
+        self.max_seq_len = 7
                 
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -151,35 +150,41 @@ class HallucinatedQTable(BasicQTable):
         if len(tmp_action_seq) <= self.max_seq_len:
             permutations_no_term = itertools.permutations(tmp_action_seq)
             for permutation in permutations_no_term:
-                permutations[tuple(permutation + (terminating_action,))] = None
+                permutations[tuple(permutation) + (terminating_action,)] = None
         else:
             i = 1
             max_samples = math.factorial(self.max_seq_len)
             while i < max_samples:
                 random.shuffle(tmp_action_seq)
-                permutations[tuple(tmp_action_seq + (terminating_action,))] = None
+                permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
                 i += 1   
         
         return list(permutations.keys())       
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, action_seq, reward):
+    def _hallucinate(self, action_seq, episode_reward):
+        seq_len = len(action_seq)
+        reward = episode_reward if seq_len == 1 else episode_reward / (seq_len - 1)
+
         permutations = self._sample_permutations(action_seq)
-        
         for permutation in permutations:
             state = np.zeros(self.state_dims, dtype=int)
             for action in permutation:
-                next_state = copy.deepcopy(state)
+                next_state = state.copy()
                 
                 done = action == action_seq[-1]
-                if done:
-                    self._update_q_table(state, action, reward, next_state, True)
+                transformed_action = self._transform_action(action)
+                
+                if done and seq_len != 1:
+                    hallucinated_reward = 0
+                elif done and seq_len == 1:
+                    hallucinated_reward = reward
                 else:
-                    # Transform action to fit it into the designated problem space
-                    transformed_action = self._transform_action(action)
+                    hallucinated_reward = reward
                     next_state[transformed_action] = 1
-                    self._update_q_table(state, action, 0, next_state, False)
-                    state = next_state
+                    
+                self._update_q_table(state, action, hallucinated_reward, next_state, done)
+                state = next_state
     
     def _train(self, problem_instance):
         rewards = []
@@ -188,19 +193,21 @@ class HallucinatedQTable(BasicQTable):
             done = False
             num_action = 0
             action_seq = []
+            episode_reward = 0
             state = np.zeros(self.state_dims, dtype=int)
             while not done:
                 num_action += 1
-                action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_action)   
+                transformed_action, original_action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)   
                              
                 state = next_state
-                action_seq += [action]
+                action_seq += [original_action]
+                episode_reward += reward
                 
-            self._hallucinate(action_seq, reward)
+            self._hallucinate(action_seq, episode_reward)
             self.epsilon *= self.epsilon_decay
             
-            rewards.append(reward)
+            rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
     
