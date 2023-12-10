@@ -18,7 +18,7 @@ class BasicQTable(EA):
         
         self.alpha = 0.0005
         self.epsilon_start = 1
-        self.num_episodes = 10000
+        self.num_episodes = 7500
         self.epsilon_decay = 0.999
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
