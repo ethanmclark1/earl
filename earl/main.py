@@ -1,4 +1,3 @@
-import copy
 import problems
 import numpy as np
 import networkx as nx
@@ -7,10 +6,8 @@ import gymnasium as gym
 from plotter import plot_metrics
 from arguments import get_arguments
 
-from agents.lfa import LFA
-from agents.td3 import TD3
-from agents.earl import EARL
-from agents.bdqn import BDQN
+from agents.q_table import BasicQTable, HallucinatedQTable, CommutativeQTable
+from agents.lfa import BasicLFA, HallucinatedLFA, CommutativeLFA
 from agents.attention_neuron import AttentionNeuron
 
 
@@ -22,22 +19,37 @@ class Driver:
             render_mode=render_mode
             )
         
+        random_seed = 42
         self.grid_size = grid_size
         self.num_cols = self.env.unwrapped.ncol
-        self.num_obstacles = 6 if grid_size == '4x4' else 14
+        self.rng = np.random.default_rng(seed=random_seed)
         
-        self.lfa = LFA(self.env, grid_size, self.num_obstacles)
-        self.bdqn = BDQN(self.env, grid_size, self.num_obstacles)
-        self.td3 = TD3(self.env, grid_size, self.num_obstacles)
-        self.attention_neuron = AttentionNeuron(self.env, grid_size, self.num_obstacles)
-        self.earl = EARL(self.env, grid_size, self.num_obstacles)
+        # Q-Learning
+        self.basic_q_table = BasicQTable(self.env, self.rng)
+        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng)
+        self.commutative_q_table = CommutativeQTable(self.env, self.rng)
         
+        # Function Approximations
+        self.basic_lfa = BasicLFA(self.env, self.rng)
+        self.hallucinated_lfa = HallucinatedLFA(self.env, self.rng)
+        self.commutative_lfa = CommutativeLFA(self.env, self.rng)
+        self.attention_neuron = AttentionNeuron(self.env, self.rng)
+                
     def retrieve_modifications(self, problem_instance):
-        approaches = ['lfa', 'bdqn', 'td3', 'attention_neuron', 'earl']
+        approaches = [
+            'basic_q_table',
+            'hallucinated_q_table',
+            'commutative_q_table',
+            'basic_lfa',
+            'hallucinated_lfa',
+            'commutative_lfa',
+            'attention_neuron'
+        ]
         modification_set = {approach: None for approach in approaches}
         
-        for idx, name in enumerate(approaches):
-            modification_set[name] = getattr(self, approaches[idx]).get_adaptations(problem_instance)
+        for name in approaches:
+            approach = getattr(self, name)
+            modification_set[name] = approach.get_adaptations(problem_instance)
             
         return modification_set
     
@@ -60,50 +72,31 @@ class Driver:
         goal_row, goal_col = np.where(desc == b'G')
         goal = list(zip(goal_row, goal_col))[0]
         bridge_row, bridge_col = np.where(desc == b'T')
-        bridge = set(zip(bridge_row, bridge_col))
+        bridges = set(zip(bridge_row, bridge_col))
         
-        return graph, start, goal, bridge
+        return graph, start, goal, bridges
     
     def act(self, problem_instance, modification_set, num_episodes):
-        path_len = {'A* w/ LFA': [],'A* w/ BDQN': [], 'A* w/ TD3': [], 'A* w/ AttentionNeuron': [], 'A* w/ EARL': []}
-        avg_path_cost = {'A* w/ LFA': 0,'A* w/ BDQN': 0, 'A* w/ TD3': 0, 'A* w/ AttentionNeuron': 0, 'A* w/ EARL': 0}
+        approaches = modification_set.keys()
+        path_len = {approach: [] for approach in approaches}
+        avg_path_cost = {approach: 0 for approach in approaches}
         
         for _ in range(num_episodes):
-            desc = problems.get_instantiated_desc(problem_instance, self.grid_size, self.num_obstacles)
+            desc = problems.get_instantiated_desc(problem_instance, self.rng, self.grid_size, self.percent_obstacles)
             
-            # Create copies of desc for each approach due to pass-by-object-reference in Python
-            tmp_desc = copy.deepcopy(desc)
-            lfa_desc = self.lfa.get_adapted_env(tmp_desc, modification_set['lfa'])
-            tmp_desc = copy.deepcopy(desc)
-            bdqn_desc = self.bdqn.get_adapted_env(tmp_desc, modification_set['bdqn'])
-            tmp_desc = copy.deepcopy(desc)
-            td3_desc = self.td3.get_adapted_env(tmp_desc, modification_set['td3'])
-            tmp_desc = copy.deepcopy(desc)
-            attention_neuron_desc = self.attention_neuron.get_adapted_env(tmp_desc, modification_set['attention_neuron'])
-            tmp_desc = copy.deepcopy(desc)
-            earl_desc = self.earl.get_adapted_env(tmp_desc, modification_set['earl'])
-            
-            for approach in path_len.keys():
-                if approach == 'A* w/ LFA':
-                    current_desc = lfa_desc
-                elif approach == 'A* w/ BDQN':
-                    current_desc = bdqn_desc
-                elif approach == 'A* w/ TD3':
-                    current_desc = td3_desc
-                elif approach == 'A* w/ AttentionNeuron':
-                    current_desc = attention_neuron_desc
-                else:
-                    current_desc = earl_desc
-                    
-                graph, start, goal, bridge = self._make_graph(current_desc)
+            adapted_env = {}
+            for approach, agent in approaches.items():
+                tmp_desc = desc.copy()
+                adapted_env[approach] = agent.get_adapted_env(tmp_desc, modification_set[approach])
+                
+            for approach, current_desc in adapted_env.items():
+                graph, start, goal, bridges = self._make_graph(current_desc)
+                path = nx.astar_path(graph, start, goal)
+                path_len[approach] += [len(path) - len(bridges)]
                 path = set(nx.astar_path(graph, start, goal))
-                path_len[approach] += [len(path - bridge)]
-        
-        avg_path_cost['A* w/ LFA'] = np.mean(path_len['A* w/ LFA'])
-        avg_path_cost['A* w/ BDQN'] = np.mean(path_len['A* w/ BDQN'])
-        avg_path_cost['A* w/ TD3'] = np.mean(path_len['A* w/ TD3'])
-        avg_path_cost['A* w/ AttentionNeuron'] = np.mean(path_len['A* w/ AttentionNeuron'])
-        avg_path_cost['A* w/ EARL'] = np.mean(path_len['A* w/ EARL'])
+            
+        for approach in approaches:
+            avg_path_cost[approach] = np.mean(path_len[approach])
         
         return avg_path_cost
     
@@ -114,7 +107,7 @@ if __name__ == '__main__':
     
     metric = []
     num_episodes = 10000
-    problem_list = problems.get_problem_list(grid_size)
+    problem_list = problems.get_problem_list(driver.grid_size)
     for problem_instance in problem_list:
         modification_set = driver.retrieve_modifications(problem_instance)
         avg_path_cost = driver.act(problem_instance, modification_set, num_episodes)
