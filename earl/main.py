@@ -12,7 +12,7 @@ from agents.attention_neuron import AttentionNeuron
 
 
 class Driver:
-    def __init__(self, grid_size, render_mode):
+    def __init__(self, grid_size, has_max_action, render_mode):
         self.env = gym.make(
             id='FrozenLake-v1', 
             map_name=grid_size, 
@@ -25,15 +25,15 @@ class Driver:
         self.rng = np.random.default_rng(seed=random_seed)
         
         # Q-Learning
-        self.basic_q_table = BasicQTable(self.env, self.rng)
-        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng)
-        self.commutative_q_table = CommutativeQTable(self.env, self.rng)
+        self.basic_q_table = BasicQTable(self.env, has_max_action, self.rng)
+        self.hallucinated_q_table = HallucinatedQTable(self.env, has_max_action, self.rng)
+        self.commutative_q_table = CommutativeQTable(self.env, has_max_action, self.rng)
         
         # Function Approximations
-        self.basic_lfa = BasicLFA(self.env, self.rng)
-        self.hallucinated_lfa = HallucinatedLFA(self.env, self.rng)
-        self.commutative_lfa = CommutativeLFA(self.env, self.rng)
-        self.attention_neuron = AttentionNeuron(self.env, self.rng)
+        self.basic_lfa = BasicLFA(self.env, has_max_action, self.rng)
+        self.hallucinated_lfa = HallucinatedLFA(self.env, has_max_action, self.rng)
+        self.commutative_lfa = CommutativeLFA(self.env, has_max_action, self.rng)
+        self.attention_neuron = AttentionNeuron(self.env, has_max_action, self.rng)
                 
     def retrieve_modifications(self, problem_instance):
         approaches = [
@@ -102,8 +102,8 @@ class Driver:
     
 
 if __name__ == '__main__':
-    grid_size, render_mode = get_arguments()
-    driver = Driver(grid_size, render_mode)    
+    grid_size, has_max_action, render_mode = get_arguments()
+    driver = Driver(grid_size, has_max_action, render_mode)    
     
     metric = []
     num_episodes = 10000

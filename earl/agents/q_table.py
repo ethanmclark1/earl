@@ -8,8 +8,8 @@ from agents.utils.ea import EA
 
 
 class BasicQTable(EA):
-    def __init__(self, env, rng):
-        super(BasicQTable, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(BasicQTable, self).__init__(env, has_max_action, rng)
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
@@ -137,8 +137,8 @@ class BasicQTable(EA):
 
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(HallucinatedQTable, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(HallucinatedQTable, self).__init__(env, has_max_action, rng)
         self.max_seq_len = 7
                 
     def _sample_permutations(self, action_seq):
@@ -214,8 +214,8 @@ class HallucinatedQTable(BasicQTable):
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(CommutativeQTable, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(CommutativeQTable, self).__init__(env, has_max_action, rng)
         
         # (s, a) -> (s', r)
         self.ptr_lst = {}

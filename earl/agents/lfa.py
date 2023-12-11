@@ -9,8 +9,8 @@ from agents.utils.ea import EA
 
 # Linear Function Approximation
 class BasicLFA(EA):
-    def __init__(self, env, rng):
-        super(BasicLFA, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(BasicLFA, self).__init__(env, has_max_action, rng)
         
         self.weights = None
         # Add a dummy action (+1) to terminate the episode
@@ -151,8 +151,8 @@ class BasicLFA(EA):
     
 
 class HallucinatedLFA(BasicLFA):
-    def __init__(self, env, rng):
-        super(HallucinatedLFA, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(HallucinatedLFA, self).__init__(env, has_max_action, rng)
         self.max_seq_len = 7
         
     def _sample_permutations(self, action_seq):
@@ -227,8 +227,8 @@ class HallucinatedLFA(BasicLFA):
             
     
 class CommutativeLFA(BasicLFA):
-    def __init__(self, env, rng):
-        super(CommutativeLFA, self).__init__(env, rng)
+    def __init__(self, env, has_max_action, rng):
+        super(CommutativeLFA, self).__init__(env, has_max_action, rng)
         
         # (s, a) -> (s', r)
         self.ptr_lst = {}

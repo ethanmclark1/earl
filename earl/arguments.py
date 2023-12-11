@@ -12,6 +12,13 @@ def get_arguments():
         choices=['4x4', '8x8'],
         help='Size of the grid {default_val: 4x4, choices: [%(choices)s]}'
         )
+    
+    parser.add_argument(
+        '--has_max_action',
+        type=bool,
+        default=False,
+        help='Whether to place a cap on the number of instrumental actions {default_val: False}'
+        )
             
     parser.add_argument(
         '--render_mode', 

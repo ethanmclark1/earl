@@ -8,10 +8,11 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, rng):
+    def __init__(self, env, has_max_action, rng):
         self._init_hyperparams()
         
         self.env = env
+        self.has_max_action = has_max_action
         self.rng = rng
         
         self.num_cols = env.unwrapped.ncol
@@ -20,7 +21,7 @@ class EA:
         self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
         
     def _init_hyperparams(self):
-        self.max_action = -1
+        self.max_action = 10 if self.has_max_action else -1
         self.action_cost = 0.10
         self.sma_percentage = 0.05
         self.percent_obstacles = 0.75
