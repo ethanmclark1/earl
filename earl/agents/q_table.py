@@ -25,6 +25,7 @@ class BasicQTable(EA):
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
+        config.max_action = self.max_action
         config.action_cost = self.action_cost
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay

@@ -20,6 +20,7 @@ class EA:
         self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
         
     def _init_hyperparams(self):
+        self.max_action = -1
         self.action_cost = 0.10
         self.sma_percentage = 0.05
         self.percent_obstacles = 0.75
@@ -109,13 +110,20 @@ class EA:
         return avg_utility
     
     # r(s,a,s') = u(s') - u(s) - c(a)
-    def _get_reward(self, problem_instance, state, done, next_state, num_action):
+    def _get_reward(self, problem_instance, state, action, next_state, num_action):
+        terminating_action = self.action_dims - 1
         util_s_prime = self._calc_utility(problem_instance, next_state)
+        
+        done = action == terminating_action
+        max_action = num_action == self.max_action
         
         # Agent selects a non-terminating action
         if not done:
             util_s = self._calc_utility(problem_instance, state)
             reward = util_s_prime - util_s - (self.action_cost * num_action)
+        # Agent exceeds max number of actions
+        elif max_action:
+            reward = util_s_prime - (self.action_cost * num_action)
         # Agent selects a terminating action as the only action
         elif done and num_action == 1:
             reward = util_s_prime
@@ -123,7 +131,7 @@ class EA:
         elif done and num_action != 1:
             reward = 0
             
-        return reward
+        return reward, (done or max_action)
         
     # Apply adaptation to task environment
     def _step(self, problem_instance, state, action, num_action):
@@ -135,8 +143,7 @@ class EA:
         if action != terminating_action and self.action_success_rate > self.rng.random():
             next_state[action] = 1
         
-        done = action == terminating_action
-        reward = self._get_reward(problem_instance, state, done, next_state, num_action)  
+        reward, done = self._get_reward(problem_instance, state, action, next_state, num_action)  
         
         return reward, next_state, done
     

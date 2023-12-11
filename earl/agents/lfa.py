@@ -17,7 +17,7 @@ class BasicLFA(EA):
         self.action_dims = env.observation_space.n + 1
         self.num_features = (2*self.state_dims) + self.action_dims
         
-        self.alpha = 0.0003
+        self.alpha = 0.0001
         self.epsilon_start = 1
         self.num_episodes = 7500
         self.epsilon_decay = 0.999
@@ -26,6 +26,7 @@ class BasicLFA(EA):
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
+        config.max_action = self.max_action
         config.action_cost = self.action_cost
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay
@@ -80,8 +81,8 @@ class BasicLFA(EA):
         td_target = reward + (1 - done) * max_next_q_value
         td_error = td_target - current_q_value
         
-        self.weights = self.weights + self.alpha * td_error * current_features
-            
+        self.weights = self.weights + self.alpha * current_features * td_error
+    
     def _train(self, problem_instance):
         rewards = []
         
@@ -103,7 +104,7 @@ class BasicLFA(EA):
                 
             self.epsilon *= self.epsilon_decay
             
-            rewards.append(reward)
+            rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
     
@@ -143,7 +144,7 @@ class BasicLFA(EA):
         adaptation, reward = self._get_adaptation(problem_instance)
         
         wandb.log({"Adaptation": adaptation})
-        wandb.log({"Final Reward": reward})
+        wandb.log({"Reward": reward})
         wandb.finish()
         
         return adaptation
@@ -152,7 +153,7 @@ class BasicLFA(EA):
 class HallucinatedLFA(BasicLFA):
     def __init__(self, env, rng):
         super(HallucinatedLFA, self).__init__(env, rng)
-        self.max_seq_len = 5
+        self.max_seq_len = 7
         
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -164,35 +165,40 @@ class HallucinatedLFA(BasicLFA):
         if len(tmp_action_seq) <= self.max_seq_len:
             permutations_no_term = itertools.permutations(tmp_action_seq)
             for permutation in permutations_no_term:
-                permutations[tuple(permutation + (terminating_action,))] = None
+                permutations[tuple(permutation) + (terminating_action,)] = None
         else:
             i = 1
             max_samples = math.factorial(self.max_seq_len)
             while i < max_samples:
                 random.shuffle(tmp_action_seq)
-                permutations[tuple(tmp_action_seq + (terminating_action,))] = None
+                permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
                 i += 1   
         
         return list(permutations.keys())   
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, action_seq, reward):
-        permutations = self._sample_permutations(action_seq)
+    def _hallucinate(self, action_seq, episode_reward):
+        seq_len = len(action_seq)
+        reward = episode_reward if seq_len == 1 else episode_reward / (seq_len - 1)
         
+        permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             state = np.zeros(self.state_dims, dtype=int)
             for action in permutation:
-                next_state = copy.deepcopy(state)
+                next_state = state.copy()
                 
                 done = action == action_seq[-1]
-                if done:
-                    self._update_weights(state, action, reward, next_state, True)
+                
+                if done and seq_len != 1:
+                    hallucinated_reward = 0
+                elif done and seq_len == 1:
+                    hallucinated_reward = reward
                 else:
-                    # Transform action to fit it into the designated problem space
-                    transformed_action = self._transform_action(action)
-                    next_state[transformed_action] = 1
-                    self._update_weights(state, action, 0, next_state, False)
-                    state = next_state
+                    hallucinated_reward = reward
+                    next_state[action] = 1
+                    
+                self._update_weights(state, action, hallucinated_reward, next_state, done)
+                state = next_state
     
     def _train(self, problem_instance):
         rewards = []
@@ -201,6 +207,7 @@ class HallucinatedLFA(BasicLFA):
             done = False
             num_action = 0
             action_seq = []
+            episode_reward = 0
             state = np.zeros(self.state_dims, dtype=int)
             while not done:
                 num_action += 1
@@ -209,11 +216,12 @@ class HallucinatedLFA(BasicLFA):
                              
                 state = next_state
                 action_seq += [action]
+                episode_reward += reward
                 
-            self._hallucinate(action_seq, reward)
+            self._hallucinate(action_seq, episode_reward)
             self.epsilon *= self.epsilon_decay
             
-            rewards.append(reward)
+            rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards}) 
             
