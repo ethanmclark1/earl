@@ -30,4 +30,4 @@ def get_arguments():
     
     args = parser.parse_args()
         
-    return args.grid_size, args.render_mode
+    return args.grid_size, args.has_max_action, args.render_mode

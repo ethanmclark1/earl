@@ -9,10 +9,9 @@ import networkx as nx
 
 class EA:
     def __init__(self, env, has_max_action, rng):
-        self._init_hyperparams()
+        self._init_hyperparams(has_max_action)
         
         self.env = env
-        self.has_max_action = has_max_action
         self.rng = rng
         
         self.num_cols = env.unwrapped.ncol
@@ -20,13 +19,13 @@ class EA:
         self.state_dims = env.observation_space.n
         self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
         
-    def _init_hyperparams(self):
-        self.max_action = 10 if self.has_max_action else -1
+    def _init_hyperparams(self, has_max_action):
         self.action_cost = 0.10
         self.sma_percentage = 0.05
         self.percent_obstacles = 0.75
         self.configs_to_consider = 25
         self.action_success_rate = 0.75
+        self.max_action = 10 if has_max_action else -1
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
