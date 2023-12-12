@@ -85,8 +85,8 @@ class EA:
                 graph[bridge][neighbor]['weight'] = 0
         
         for _ in range(self.configs_to_consider):
-            tmp_desc = desc.copy()
-            tmp_graph = graph.copy()
+            tmp_desc = copy.deepcopy(desc)
+            tmp_graph = copy.deepcopy(graph)
             start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.grid_size, self.percent_obstacles)
             
             # Bridges cannot cover start or goal cells 
@@ -138,7 +138,7 @@ class EA:
         state = copy.deepcopy(state)
         terminating_action = self.action_dims - 1
         
-        next_state = state.copy()
+        next_state = copy.deepcopy(state)
         # Add stochasticity to instrumental action execution
         if action != terminating_action and self.action_success_rate > self.rng.random():
             next_state[action] = 1
