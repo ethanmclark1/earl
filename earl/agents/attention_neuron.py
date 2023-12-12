@@ -18,25 +18,31 @@ from agents.utils.networks import PINN
 
 # CMA-ES with Attention Mechanism
 class AttentionNeuron(EA):
-    def __init__(self, env, grid_size, num_obstacles):
-        super(AttentionNeuron, self).__init__(env, grid_size, num_obstacles)
+    def __init__(self, env, has_max_action, rng):
+        super(AttentionNeuron, self).__init__(env, has_max_action, rng)
         
         self.attention_neuron = None
+        # Add a dummy action (+1) to terminate the episode
+        self.action_dims = env.observation_space.n + 1
         
         self.n_processes = 16
         self.n_population = 50
         self.n_generations = 1000
         self.fitness_samples = 50
+        self.configs_to_consider = 100
         self.sma_window = int(self.n_generations * self.sma_percentage)
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
+        config.max_action = self.max_action
         config.action_cost = self.action_cost
         config.n_processes = self.n_processes
         config.n_population = self.n_population
         config.n_generations = self.n_generations
         config.fitness_samples = self.fitness_samples
+        config.percent_obstacles = self.percent_obstacles
         config.action_success_rate = self.action_success_rate
+        config.configs_to_consider = self.configs_to_consider
         
     def _select_action(self, state):
         with torch.no_grad():
@@ -88,7 +94,7 @@ class AttentionNeuron(EA):
         solver = cma.CMAEvolutionStrategy(
             x0=np.zeros(model_params), 
             sigma0=1.0, 
-            inopts={'popsize': self.n_population, 'randn': np.random.randn, 'seed': self.random_seed}
+            inopts={'popsize': self.n_population, 'randn': np.random.rand, 'seed': 42}
             )
         start_state = torch.zeros(self.state_dims)
 
@@ -103,7 +109,7 @@ class AttentionNeuron(EA):
             pop_fitness = pool.starmap(self._calc_fitness, args)   
             
             # Negate fitness due to CMA-ES minimizing the cost
-            solver.tell(pop_params, [-i for i in pop_fitness])
+            solver.tell(pop_params, [i for i in pop_fitness])
             
             max_pop_fitness = max(pop_fitness)    
             fitnesses.append(max_pop_fitness)
@@ -123,6 +129,7 @@ class AttentionNeuron(EA):
         done = False
         num_action = 0
         action_seq = []
+        episode_reward = 0
         state = torch.zeros(self.state_dims)
         while not done:
             num_action += 1
@@ -130,6 +137,7 @@ class AttentionNeuron(EA):
             reward, next_state, done = self._step(problem_instance, state, action, num_action)
             state = next_state
             action_seq += [action]
+            episode_reward += reward
             
         return action_seq, reward
             
