@@ -9,18 +9,18 @@ from agents.utils.ea import EA
 
 # Linear Function Approximation
 class BasicLFA(EA):
-    def __init__(self, env, has_max_action, rng):
-        super(BasicLFA, self).__init__(env, has_max_action, rng)
+    def __init__(self, env, rng):
+        super(BasicLFA, self).__init__(env, rng)
         
         self.weights = None
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = env.observation_space.n + 1
         self.num_features = (2*self.state_dims) + self.action_dims
         
-        self.alpha = 0.0001
+        self.alpha = 0.0002
         self.epsilon_start = 1
-        self.num_episodes = 7500
-        self.epsilon_decay = 0.999
+        self.num_episodes = 5000
+        self.epsilon_decay = 0.9995
         self.sma_window = int(self.num_episodes * self.sma_percentage)
 
     def _init_wandb(self, problem_instance):
@@ -89,9 +89,8 @@ class BasicLFA(EA):
         for _ in range(self.num_episodes):
             done = False
             num_action = 0
-            action_seq = []
             episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
+            state = self._generate_state(problem_instance)
             while not done:
                 num_action += 1
                 action = self._select_action(state)
@@ -99,7 +98,6 @@ class BasicLFA(EA):
                 
                 self._update_weights(state, action, reward, next_state, done)
                 state = next_state
-                action_seq += [action]
                 episode_reward += reward
                 
             self.epsilon *= self.epsilon_decay
@@ -151,54 +149,52 @@ class BasicLFA(EA):
     
 
 class HallucinatedLFA(BasicLFA):
-    def __init__(self, env, has_max_action, rng):
-        super(HallucinatedLFA, self).__init__(env, has_max_action, rng)
-        self.max_seq_len = 7
+    def __init__(self, env, rng):
+        super(HallucinatedLFA, self).__init__(env, rng)
+        self.max_seq_len = 6
         
     def _sample_permutations(self, action_seq):
         permutations = {}
         permutations[tuple(action_seq)] = None
         
         tmp_action_seq = action_seq.copy()
-        terminating_action = tmp_action_seq.pop()
+        has_terminating_action = self.action_dims - 1 in tmp_action_seq
+        terminating_action = tmp_action_seq.pop() if has_terminating_action else None
         
         if len(tmp_action_seq) <= self.max_seq_len:
-            permutations_no_term = itertools.permutations(tmp_action_seq)
-            for permutation in permutations_no_term:
-                permutations[tuple(permutation) + (terminating_action,)] = None
+            tmp_permutations = itertools.permutations(tmp_action_seq)
+            for permutation in tmp_permutations:
+                if terminating_action is not None:
+                    permutations[tuple(permutation) + (terminating_action,)] = None
+                else:
+                    permutations[tuple(permutation)] = None
         else:
             i = 1
             max_samples = math.factorial(self.max_seq_len)
             while i < max_samples:
                 random.shuffle(tmp_action_seq)
-                permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
+                if terminating_action is not None:
+                    permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
+                else:
+                    permutations[tuple(tmp_action_seq)] = None
                 i += 1   
         
-        return list(permutations.keys())   
+        return list(permutations.keys()) 
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, action_seq, episode_reward):
-        seq_len = len(action_seq)
-        reward = episode_reward if seq_len == 1 else episode_reward / (seq_len - 1)
-        
+    def _hallucinate(self, problem_instance, start_state, action_seq):        
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
-            state = np.zeros(self.state_dims, dtype=int)
+            num_action = 0
+            episode_reward = 0
+            state = start_state
             for action in permutation:
-                next_state = state.copy()
-                
-                done = action == action_seq[-1]
-                
-                if done and seq_len != 1:
-                    hallucinated_reward = 0
-                elif done and seq_len == 1:
-                    hallucinated_reward = reward
-                else:
-                    hallucinated_reward = reward
-                    next_state[action] = 1
+                num_action += 1
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
                     
-                self._update_weights(state, action, hallucinated_reward, next_state, done)
+                self._update_weights(state, action, reward, next_state, done)
                 state = next_state
+                episode_reward += reward
     
     def _train(self, problem_instance):
         rewards = []
@@ -208,7 +204,8 @@ class HallucinatedLFA(BasicLFA):
             num_action = 0
             action_seq = []
             episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
+            start_state = self._generate_state(problem_instance)
+            state = start_state
             while not done:
                 num_action += 1
                 action = self._select_action(state)
@@ -218,7 +215,7 @@ class HallucinatedLFA(BasicLFA):
                 action_seq += [action]
                 episode_reward += reward
                 
-            self._hallucinate(action_seq, episode_reward)
+            self._hallucinate(problem_instance, start_state, action_seq)
             self.epsilon *= self.epsilon_decay
             
             rewards.append(episode_reward)
@@ -227,8 +224,8 @@ class HallucinatedLFA(BasicLFA):
             
     
 class CommutativeLFA(BasicLFA):
-    def __init__(self, env, has_max_action, rng):
-        super(CommutativeLFA, self).__init__(env, has_max_action, rng)
+    def __init__(self, env, rng):
+        super(CommutativeLFA, self).__init__(env, rng)
         
         # (s, a) -> (s', r)
         self.ptr_lst = {}

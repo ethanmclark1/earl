@@ -19,7 +19,7 @@ class BasicQTable(EA):
         
         self.alpha = 0.0003
         self.epsilon_start = 1
-        self.num_episodes = 4000
+        self.num_episodes = 2500
         self.epsilon_decay = 0.99
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
@@ -79,7 +79,7 @@ class BasicQTable(EA):
             done = False
             num_action = 0
             episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
+            state = self._generate_state(problem_instance)
             while not done:
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
@@ -173,12 +173,12 @@ class HallucinatedQTable(BasicQTable):
         return list(permutations.keys())       
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, problem_instance, action_seq):
+    def _hallucinate(self, problem_instance, start_state, action_seq):
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             num_action = 0
             episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
+            state = start_state
             for original_action in permutation:
                 num_action += 1
                 transformed_action = self._transform_action(original_action)
@@ -196,7 +196,8 @@ class HallucinatedQTable(BasicQTable):
             num_action = 0
             action_seq = []
             episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
+            start_state = self._generate_state(problem_instance)
+            state = start_state
             while not done:
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
@@ -206,7 +207,7 @@ class HallucinatedQTable(BasicQTable):
                 action_seq += [original_action]
                 episode_reward += reward
                 
-            self._hallucinate(problem_instance, action_seq)
+            self._hallucinate(problem_instance, start_state, action_seq)
             self.epsilon *= self.epsilon_decay
             
             rewards.append(episode_reward)

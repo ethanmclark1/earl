@@ -8,9 +8,7 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, has_max_action, rng):
-        self._init_hyperparams(has_max_action)
-        
+    def __init__(self, env, rng):
         self.env = env
         self.rng = rng
         
@@ -19,13 +17,22 @@ class EA:
         self.state_dims = env.observation_space.n
         self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
         
-    def _init_hyperparams(self, has_max_action):
-        self.action_cost = 0.10
-        self.sma_percentage = 0.05
-        self.percent_obstacles = 0.75
-        self.configs_to_consider = 25
-        self.action_success_rate = 0.75
-        self.max_action = 10 if has_max_action else -1
+        self._init_hyperparams()
+        
+    def _init_hyperparams(self):
+        if self.grid_size == '4x4':
+            self.max_action = 6
+            self.action_cost = 0.50
+            self.configs_to_consider = 25
+            self.percent_obstacles = 0.75
+        else:
+            self.max_action = 8
+            self.action_cost = 0.20
+            self.configs_to_consider = 50
+            self.percent_obstacles = 0.90
+            
+        self.action_success_rate = 0.75        
+        self.sma_percentage = 0.025
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
@@ -55,12 +62,29 @@ class EA:
         config = wandb.config
         return config
     
+    # Generate initial adaptations for a given problem instance
+    def _generate_state(self, problem_instance):
+        start, goal = problems.problems[self.grid_size][problem_instance]['start_and_goal']
+        num_bridges = self.rng.choice(self.max_action)
+        bridges = self.rng.choice(self.action_dims - 1, size=num_bridges, replace=False)
+        bridges = set(bridges) - set([start, goal])
+        state = np.zeros(self.state_dims, dtype=int)
+        for bridge in bridges:
+            if hasattr(self, '_transform_action'):
+                bridge = self._transform_action(bridge)
+            tmp_next_state = state.reshape(self.grid_dims)
+            col = bridge // self.num_cols
+            row = bridge % self.num_cols
+            tmp_next_state[row, col] = 1
+            state = tmp_next_state.reshape(self.state_dims)
+        return state
+    
     def _create_graph(self):
         graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
-        nx.set_edge_attributes(graph, 1, 'weight')
+        nx.set_edge_attributes(graph, 5, 'weight')
         return graph
     
-    # Calculate utilities for a given configuration by averaging A* path lengths over multiple trials
+    # Calculate utility for a given state by averaging A* path lengths over multiple trials
     """
     Cell Values:
         0: Frozen
@@ -69,13 +93,13 @@ class EA:
         3: Goal
         4: Hole
     """
-    def _calc_utility(self, problem_instance, configuration):
+    def _calc_utility(self, problem_instance, state):
         def manhattan_dist(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
         
         utilities = []
         graph = self._create_graph()
-        desc = copy.deepcopy(configuration).reshape(self.grid_dims)
+        desc = copy.deepcopy(state).reshape(self.grid_dims)
         row_idx, col_idx = np.where(desc == 1)
         
         bridges = set(zip(row_idx, col_idx))
@@ -95,7 +119,7 @@ class EA:
                 continue
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
-            #  obstacle in cell only if bridge is not already there
+            #  Place obstacle in cell only if bridge is not already there
             for obstacle in obstacles:
                 obstacle = tuple(obstacle)
                 if tmp_desc[obstacle] != 1:
@@ -111,37 +135,32 @@ class EA:
     
     # r(s,a,s') = u(s') - u(s) - c(a)
     def _get_reward(self, problem_instance, state, action, next_state, num_action):
+        reward = 0
         terminating_action = self.action_dims - 1
-        util_s_prime = self._calc_utility(problem_instance, next_state)
         
         done = action == terminating_action
-        max_action = num_action == self.max_action
+        timeout = num_action == self.max_action
         
-        # Agent selects a non-terminating action
+        # Non-terminating actions incur an additional cost per action
         if not done:
             util_s = self._calc_utility(problem_instance, state)
+            util_s_prime = self._calc_utility(problem_instance, next_state)
             reward = util_s_prime - util_s - (self.action_cost * num_action)
-        # Agent exceeds max number of actions
-        elif max_action:
-            reward = util_s_prime - (self.action_cost * num_action)
-        # Agent selects a terminating action as the only action
-        elif done and num_action == 1:
-            reward = util_s_prime
-        # Agent selects a non-terminating action and it isn't the only action
-        elif done and num_action != 1:
-            reward = 0
-            
-        return reward, (done or max_action)
+        
+        return reward, (done or timeout)
         
     # Apply adaptation to task environment
     def _step(self, problem_instance, state, action, num_action):
-        state = copy.deepcopy(state)
+        next_state = copy.deepcopy(state)
         terminating_action = self.action_dims - 1
         
-        next_state = copy.deepcopy(state)
-        # Add stochasticity to instrumental action execution
+        # Add stochasticity to actions
         if action != terminating_action and self.action_success_rate > self.rng.random():
-            next_state[action] = 1
+            tmp_next_state = next_state.reshape(self.grid_dims)
+            col = action // self.num_cols
+            row = action % self.num_cols
+            tmp_next_state[row, col] = 1
+            next_state = tmp_next_state.reshape(self.state_dims)
         
         reward, done = self._get_reward(problem_instance, state, action, next_state, num_action)  
         
