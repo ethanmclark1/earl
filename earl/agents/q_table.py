@@ -1,3 +1,4 @@
+import pdb
 import math
 import wandb
 import random
@@ -8,18 +9,18 @@ from agents.utils.ea import EA
 
 
 class BasicQTable(EA):
-    def __init__(self, env, has_max_action, rng):
-        super(BasicQTable, self).__init__(env, has_max_action, rng)
+    def __init__(self, env, rng):
+        super(BasicQTable, self).__init__(env, rng)
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = 4 + 1
-        self.nS = 2 ** self.state_dims
+        self.nS = 2 ** 4
         
-        self.alpha = 0.0005
+        self.alpha = 0.0003
         self.epsilon_start = 1
-        self.num_episodes = 7500
-        self.epsilon_decay = 0.999
+        self.num_episodes = 4000
+        self.epsilon_decay = 0.99
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
     def _init_wandb(self, problem_instance):
@@ -32,14 +33,16 @@ class BasicQTable(EA):
         config.percent_obstacles = self.percent_obstacles
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
-
+    
     def _get_state_idx(self, state):
-        binary_str = "".join(str(cell) for cell in reversed(state))
+        mutable_state = [state[5], state[6], state[9], state[10]]
+        binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
 
     # Shift action indices to the middle 4 cells of the grid
     # 0 -> 5; 1 -> 6; 2 -> 9; 3 -> 10; 4 -> 4
+    # Transform action so that it can be used to change the state
     def _transform_action(self, action):
         shift = 5
         # Terminating action is unchanged
@@ -75,7 +78,6 @@ class BasicQTable(EA):
         for _ in range(self.num_episodes):
             done = False
             num_action = 0
-            action_seq = []
             episode_reward = 0
             state = np.zeros(self.state_dims, dtype=int)
             while not done:
@@ -85,7 +87,6 @@ class BasicQTable(EA):
                 
                 self._update_q_table(state, original_action, reward, next_state, done)
                 state = next_state
-                action_seq += [original_action]
                 episode_reward += reward
                 
             self.epsilon *= self.epsilon_decay
@@ -93,6 +94,7 @@ class BasicQTable(EA):
             rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
+                        
                         
     def _get_adaptation(self, problem_instance):
         trials = 25
@@ -108,6 +110,7 @@ class BasicQTable(EA):
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
                 reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
+                
                 state = next_state
                 action_seq += [original_action]
                 episode_reward += reward
@@ -137,55 +140,53 @@ class BasicQTable(EA):
 
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, has_max_action, rng):
-        super(HallucinatedQTable, self).__init__(env, has_max_action, rng)
-        self.max_seq_len = 7
+    def __init__(self, env, rng):
+        super(HallucinatedQTable, self).__init__(env, rng)
+        self.max_seq_len = 6
                 
     def _sample_permutations(self, action_seq):
         permutations = {}
         permutations[tuple(action_seq)] = None
         
         tmp_action_seq = action_seq.copy()
-        terminating_action = tmp_action_seq.pop()
+        has_terminating_action = self.action_dims - 1 in tmp_action_seq
+        terminating_action = tmp_action_seq.pop() if has_terminating_action else None
         
         if len(tmp_action_seq) <= self.max_seq_len:
-            permutations_no_term = itertools.permutations(tmp_action_seq)
-            for permutation in permutations_no_term:
-                permutations[tuple(permutation) + (terminating_action,)] = None
+            tmp_permutations = itertools.permutations(tmp_action_seq)
+            for permutation in tmp_permutations:
+                if terminating_action is not None:
+                    permutations[tuple(permutation) + (terminating_action,)] = None
+                else:
+                    permutations[tuple(permutation)] = None
         else:
             i = 1
             max_samples = math.factorial(self.max_seq_len)
             while i < max_samples:
                 random.shuffle(tmp_action_seq)
-                permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
+                if terminating_action is not None:
+                    permutations[tuple(tmp_action_seq) + (terminating_action,)] = None
+                else:
+                    permutations[tuple(tmp_action_seq)] = None
                 i += 1   
         
         return list(permutations.keys())       
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, action_seq, episode_reward):
-        seq_len = len(action_seq)
-        reward = episode_reward if seq_len == 1 else episode_reward / (seq_len - 1)
-
+    def _hallucinate(self, problem_instance, action_seq):
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
+            num_action = 0
+            episode_reward = 0
             state = np.zeros(self.state_dims, dtype=int)
-            for action in permutation:
-                next_state = state.copy()
-                
-                done = action == action_seq[-1]
-                transformed_action = self._transform_action(action)
-                
-                if done and seq_len != 1:
-                    hallucinated_reward = 0
-                elif done and seq_len == 1:
-                    hallucinated_reward = reward
-                else:
-                    hallucinated_reward = reward
-                    next_state[transformed_action] = 1
+            for original_action in permutation:
+                num_action += 1
+                transformed_action = self._transform_action(original_action)
+                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
                     
-                self._update_q_table(state, action, hallucinated_reward, next_state, done)
+                self._update_q_table(state, original_action, reward, next_state, done)
                 state = next_state
+                episode_reward += reward
     
     def _train(self, problem_instance):
         rewards = []
@@ -205,7 +206,7 @@ class HallucinatedQTable(BasicQTable):
                 action_seq += [original_action]
                 episode_reward += reward
                 
-            self._hallucinate(action_seq, episode_reward)
+            self._hallucinate(problem_instance, action_seq)
             self.epsilon *= self.epsilon_decay
             
             rewards.append(episode_reward)
@@ -214,8 +215,8 @@ class HallucinatedQTable(BasicQTable):
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, has_max_action, rng):
-        super(CommutativeQTable, self).__init__(env, has_max_action, rng)
+    def __init__(self, env, rng):
+        super(CommutativeQTable, self).__init__(env, rng)
         
         # (s, a) -> (s', r)
         self.ptr_lst = {}
