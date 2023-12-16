@@ -14,12 +14,12 @@ class BasicQTable(EA):
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
-        self.action_dims = 4 + 1
-        self.nS = 2 ** 4
+        self.action_dims = 16 + 1
+        self.nS = 2 ** 16
         
-        self.alpha = 0.0003
+        self.alpha = 0.0002
         self.epsilon_start = 1
-        self.num_episodes = 2500
+        self.num_episodes = 5000
         self.epsilon_decay = 0.99
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
@@ -35,20 +35,31 @@ class BasicQTable(EA):
         config.configs_to_consider = self.configs_to_consider
     
     def _get_state_idx(self, state):
-        mutable_state = [state[5], state[6], state[9], state[10]]
+        mutable_state = [
+            state[18], state[19], state[20], state[21],
+            state[26], state[27], state[28], state[29],
+            state[34], state[35], state[36], state[37],
+            state[42], state[43], state[44], state[45]
+        ]
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
 
-    # Shift action indices to the middle 4 cells of the grid
-    # 0 -> 5; 1 -> 6; 2 -> 9; 3 -> 10; 4 -> 4
-    # Transform action so that it can be used to change the state
+    # Transform action so that it can be used to modify the state
+    # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
+    # 4 -> 26; 5 -> 27; 6 -> 28; 7 -> 29
+    # 8 -> 34; 9 -> 35; 10 -> 36; 11 -> 37
+    # 12 -> 42; 13 -> 43; 14 -> 44; 15 -> 45
     def _transform_action(self, action):
-        shift = 5
+        shift = 18
         # Terminating action is unchanged
-        if action != 4:
-            if action == 2 or action == 3:
-                shift += 2
+        if action != self.action_dims - 1:
+            if 4 <= action <= 7:
+                shift += 4
+            elif 8 <= action <= 11:
+                shift += 8
+            elif 12 <= action <= 15:
+                shift += 12
             action += shift
         return action     
         
@@ -95,9 +106,8 @@ class BasicQTable(EA):
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
                         
-                        
     def _get_adaptation(self, problem_instance):
-        trials = 25
+        trials = 10
         scoreboard = set()
         
         for _ in range(trials):
@@ -128,7 +138,7 @@ class BasicQTable(EA):
         self.epsilon = self.epsilon_start
         self.q_table = np.zeros((self.nS, self.action_dims))
         
-        self._init_wandb(problem_instance)
+        # self._init_wandb(problem_instance)
         self._train(problem_instance)
         adaptation, reward = self._get_adaptation(problem_instance)
         
