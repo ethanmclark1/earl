@@ -39,7 +39,6 @@ class EA:
             pickle.dump(adaptation, file)
             
     def _load(self, approach, problem_instance):
-        problem_instance='cheese'
         directory = f'earl/agents/history/{approach.lower()}'
         filename = f'{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
