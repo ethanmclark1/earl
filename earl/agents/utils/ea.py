@@ -8,31 +8,25 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, rng):
+    def __init__(self, env, rng, percent_obstacles):
+        self._init_hyperparams(percent_obstacles)
+        
         self.env = env
         self.rng = rng
-        
+
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
         self.state_dims = env.observation_space.n
-        self.grid_size = '4x4' if self.grid_dims[0] == 4 else '8x8'
-        
-        self._init_hyperparams()
-        
-    def _init_hyperparams(self):
-        if self.grid_size == '4x4':
-            self.max_action = 6
-            self.action_cost = 0.50
-            self.configs_to_consider = 25
-            self.percent_obstacles = 0.75
-        else:
-            self.max_action = 8
-            self.action_cost = 0.20
-            self.configs_to_consider = 50
-            self.percent_obstacles = 0.90
-            
-        self.action_success_rate = 0.75        
+        self.percent_obstacles = percent_obstacles
+    
+    # Tabular solutions have smaller solution spaces than approximate solutions
+    def _init_hyperparams(self, percent_obstacles):
+        self.max_action = 8
+        self.action_cost = 0.10
         self.sma_percentage = 0.025
+        self.configs_to_consider = 30
+        self.action_success_rate = 0.75
+        self.percent_obstacles = percent_obstacles  
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
@@ -45,6 +39,7 @@ class EA:
             pickle.dump(adaptation, file)
             
     def _load(self, approach, problem_instance):
+        problem_instance='cheese'
         directory = f'earl/agents/history/{approach.lower()}'
         filename = f'{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
@@ -62,22 +57,32 @@ class EA:
         config = wandb.config
         return config
     
-    # Generate initial adaptations for a given problem instance
+    # Generate initial state for a given problem instance
     def _generate_state(self, problem_instance):
-        start, goal = problems.problems[self.grid_size][problem_instance]['start_and_goal']
+        start, goal = problems.problems[problem_instance]['start_and_goal']
         num_bridges = self.rng.choice(self.max_action)
-        bridges = self.rng.choice(self.action_dims - 1, size=num_bridges, replace=False)
-        bridges = set(bridges) - set([start, goal])
-        state = np.zeros(self.state_dims, dtype=int)
+        bridges = self.rng.choice(self.action_dims - 1, size=num_bridges, replace=True)
+        state = np.zeros(self.grid_dims, dtype=int)
+        
         for bridge in bridges:
             if hasattr(self, '_transform_action'):
                 bridge = self._transform_action(bridge)
-            tmp_next_state = state.reshape(self.grid_dims)
-            col = bridge // self.num_cols
-            row = bridge % self.num_cols
-            tmp_next_state[row, col] = 1
-            state = tmp_next_state.reshape(self.state_dims)
+            row = bridge // self.num_cols
+            col = bridge % self.num_cols
+            bridge = (row, col)
+            if bridge == start or bridge == goal:
+                continue
+            state[bridge] = 1
+            
         return state
+    
+    def _place_bridge(self, state, action):
+        next_state = copy.deepcopy(state)
+        row = action // self.num_cols
+        col = action % self.num_cols
+        bridge = (row, col)
+        next_state[bridge] = 1
+        return next_state
     
     def _create_graph(self):
         graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
@@ -111,7 +116,7 @@ class EA:
         for _ in range(self.configs_to_consider):
             tmp_desc = copy.deepcopy(desc)
             tmp_graph = copy.deepcopy(graph)
-            start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.grid_size, self.percent_obstacles)
+            start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.percent_obstacles)
             
             # Bridges cannot cover start or goal cells 
             if tmp_desc[start] == 1 or tmp_desc[goal] == 1:
@@ -156,11 +161,7 @@ class EA:
         
         # Add stochasticity to actions
         if action != terminating_action and self.action_success_rate > self.rng.random():
-            tmp_next_state = next_state.reshape(self.grid_dims)
-            col = action // self.num_cols
-            row = action % self.num_cols
-            tmp_next_state[row, col] = 1
-            next_state = tmp_next_state.reshape(self.state_dims)
+            next_state = self._place_bridge(state, action)
         
         reward, done = self._get_reward(problem_instance, state, action, next_state, num_action)  
         
@@ -182,11 +183,13 @@ class EA:
     
     # Apply adaptations to task environment
     def get_adapted_env(self, desc, adaptations):
-        for reconfigruation in adaptations:
-            row = reconfigruation // self.num_cols
-            col = reconfigruation % self.num_cols
-            if desc[row, col] == b'S' or desc[row, col] == b'G':
+        for bridge in adaptations:
+            if hasattr(self, '_transform_action'):
+                bridge = self._transform_action(bridge)
+            row = bridge // self.num_cols
+            col = bridge % self.num_cols
+            if desc[row][col] == 2 or desc[row][col] == 3:
                 continue
-            desc[row, col] = b'T'
+            desc[row][col] = 1
         
         return desc

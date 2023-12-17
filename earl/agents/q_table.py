@@ -9,18 +9,18 @@ from agents.utils.ea import EA
 
 
 class BasicQTable(EA):
-    def __init__(self, env, rng):
-        super(BasicQTable, self).__init__(env, rng)
+    def __init__(self, env, rng, percent_obstacles):
+        super(BasicQTable, self).__init__(env, rng, percent_obstacles)
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = 16 + 1
         self.nS = 2 ** 16
         
-        self.alpha = 0.0002
+        self.alpha = 0.0004
         self.epsilon_start = 1
-        self.num_episodes = 5000
-        self.epsilon_decay = 0.99
+        self.num_episodes = 50000
+        self.epsilon_decay = 0.9999
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
     def _init_wandb(self, problem_instance):
@@ -35,12 +35,7 @@ class BasicQTable(EA):
         config.configs_to_consider = self.configs_to_consider
     
     def _get_state_idx(self, state):
-        mutable_state = [
-            state[18], state[19], state[20], state[21],
-            state[26], state[27], state[28], state[29],
-            state[34], state[35], state[36], state[37],
-            state[42], state[43], state[44], state[45]
-        ]
+        mutable_state = state[2:6, 2:6].reshape(-1)
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
@@ -51,17 +46,14 @@ class BasicQTable(EA):
     # 8 -> 34; 9 -> 35; 10 -> 36; 11 -> 37
     # 12 -> 42; 13 -> 43; 14 -> 44; 15 -> 45
     def _transform_action(self, action):
-        shift = 18
-        # Terminating action is unchanged
-        if action != self.action_dims - 1:
-            if 4 <= action <= 7:
-                shift += 4
-            elif 8 <= action <= 11:
-                shift += 8
-            elif 12 <= action <= 15:
-                shift += 12
-            action += shift
-        return action     
+        if action == self.action_dims - 1:
+            return action
+
+        row = action // 4
+        col = action % 4
+
+        shift = 18 + row * 8 + col
+        return shift
         
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
@@ -106,52 +98,39 @@ class BasicQTable(EA):
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
                         
-    def _get_adaptation(self, problem_instance):
-        trials = 10
-        scoreboard = set()
-        
-        for _ in range(trials):
-            done = False
-            num_action = 0
-            action_seq = []
-            episode_reward = 0
-            state = np.zeros(self.state_dims, dtype=int)
-            while not done:
-                num_action += 1
-                transformed_action, original_action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
-                
-                state = next_state
-                action_seq += [original_action]
-                episode_reward += reward
+    def _get_final_adaptation(self, problem_instance):
+        done = False
+        num_action = 0
+        action_seq = []
+        self.epsilon = 0
+        state = np.zeros(self.grid_dims, dtype=int)
+        while not done:
+            num_action += 1
+            transformed_action, original_action = self._select_action(state)
+            _, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
             
-            info = tuple(action_seq) + (episode_reward,) 
-            scoreboard.add(info)
-        
-        info = max(scoreboard, key=lambda x: x[-1])
-        action_seq = list(info[:-1])
-        reward = info[-1]
-        
-        return action_seq, reward
+            state = next_state
+            action_seq += [original_action]
+            
+        return action_seq
         
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
         self.q_table = np.zeros((self.nS, self.action_dims))
         
-        # self._init_wandb(problem_instance)
+        self._init_wandb(problem_instance)
         self._train(problem_instance)
-        adaptation, reward = self._get_adaptation(problem_instance)
+        adaptation = self._get_final_adaptation(problem_instance)
         
         wandb.log({'Adaptation': adaptation})
-        wandb.log({'Reward': reward})
         wandb.finish()
         
         return adaptation
 
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(HallucinatedQTable, self).__init__(env, rng)
+    def __init__(self, env, rng, percent_obstacles):
+        super(HallucinatedQTable, self).__init__(env, rng, percent_obstacles)
         self.max_seq_len = 6
                 
     def _sample_permutations(self, action_seq):
@@ -226,8 +205,8 @@ class HallucinatedQTable(BasicQTable):
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(CommutativeQTable, self).__init__(env, rng)
+    def __init__(self, env, rng, percent_obstacles):
+        super(CommutativeQTable, self).__init__(env, rng, percent_obstacles)
         
         # (s, a) -> (s', r)
         self.ptr_lst = {}
