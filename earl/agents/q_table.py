@@ -19,7 +19,7 @@ class BasicQTable(EA):
         
         self.alpha = 0.0004
         self.epsilon_start = 1
-        self.num_episodes = 50000
+        self.num_episodes = 75000
         self.epsilon_decay = 0.9999
         self.sma_window = int(self.num_episodes * self.sma_percentage)
         
@@ -98,7 +98,7 @@ class BasicQTable(EA):
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
                         
-    def _get_final_adaptation(self, problem_instance):
+    def _get_final_adaptations(self, problem_instance):
         done = False
         num_action = 0
         action_seq = []
@@ -120,7 +120,7 @@ class BasicQTable(EA):
         
         self._init_wandb(problem_instance)
         self._train(problem_instance)
-        adaptation = self._get_final_adaptation(problem_instance)
+        adaptation = self._get_final_adaptations(problem_instance)
         
         wandb.log({'Adaptation': adaptation})
         wandb.finish()
