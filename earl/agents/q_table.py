@@ -18,10 +18,10 @@ class BasicQTable(EA):
         self.nS = 2 ** 16
         
         self.alpha = 0.0004
+        self.sma_window = 500
         self.epsilon_start = 1
         self.num_episodes = 75000
         self.epsilon_decay = 0.9999
-        self.sma_window = int(self.num_episodes * self.sma_percentage)
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
