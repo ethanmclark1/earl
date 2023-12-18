@@ -18,19 +18,18 @@ from agents.utils.networks import PINN
 
 # CMA-ES with Attention Mechanism
 class AttentionNeuron(EA):
-    def __init__(self, env, has_max_action, rng):
-        super(AttentionNeuron, self).__init__(env, has_max_action, rng)
+    def __init__(self, env, rng, percent_obstacles):
+        super(AttentionNeuron, self).__init__(env, rng, percent_obstacles)
         
         self.attention_neuron = None
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = env.observation_space.n + 1
         
-        self.n_processes = 16
-        self.n_population = 50
-        self.n_generations = 1000
-        self.fitness_samples = 50
-        self.configs_to_consider = 100
-        self.sma_window = int(self.n_generations * self.sma_percentage)
+        self.sma_window = 100
+        self.n_processes = 32
+        self.n_population = 30
+        self.n_generations = 2500
+        self.fitness_samples = 30
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -64,13 +63,13 @@ class AttentionNeuron(EA):
 
             i += param_size
     
-    def _calc_fitness(self, model, problem_instance, start_state):
+    def _calc_fitness(self, model, problem_instance):
         total_fitness = []
         for _ in range(self.fitness_samples):
             done = False
             model.reset()
             num_action = 0
-            state = start_state
+            state = torch.tensor(self._generate_state(problem_instance), dtype=torch.float32)
             
             while not done:
                 num_action += 1
@@ -96,8 +95,7 @@ class AttentionNeuron(EA):
             sigma0=1.0, 
             inopts={'popsize': self.n_population, 'randn': np.random.rand, 'seed': 42}
             )
-        start_state = torch.zeros(self.state_dims)
-
+        
         for _ in range(self.n_generations):
             # Get initial population (parameters for each model)
             pop_params = solver.ask()
@@ -105,7 +103,7 @@ class AttentionNeuron(EA):
             for model, params in zip(models, pop_params):
                 self._set_params(model, params)
             
-            args = [(model, problem_instance, start_state) for model in models]
+            args = [(model, problem_instance) for model in models]
             pop_fitness = pool.starmap(self._calc_fitness, args)   
             
             # Negate fitness due to CMA-ES minimizing the cost
@@ -122,24 +120,22 @@ class AttentionNeuron(EA):
                 
         return best_params
     
-    def _get_adaptation(self, problem_instance, best_params):
+    def _get_final_adaptations(self, problem_instance, best_params):
         self.attention_neuron.reset()
         self._set_params(self.attention_neuron, best_params)
         
         done = False
         num_action = 0
         action_seq = []
-        episode_reward = 0
-        state = torch.zeros(self.state_dims)
+        state = torch.zeros(self.grid_dims, dtype=torch.float32)
         while not done:
             num_action += 1
             action = self._select_action(state)
-            reward, next_state, done = self._step(problem_instance, state, action, num_action)
+            _, next_state, done = self._step(problem_instance, state, action, num_action)
             state = next_state
             action_seq += [action]
-            episode_reward += reward
             
-        return action_seq, reward
+        return action_seq
             
     # Generate optimal adaptation for a given problem instance
     def _generate_adaptations(self, problem_instance):
@@ -148,10 +144,9 @@ class AttentionNeuron(EA):
         self.attention_neuron = PINN(self.action_dims)
         
         best_params = self._fit_model(problem_instance)
-        adaptation, reward = self._get_adaptation(problem_instance, best_params)
+        adaptation = self._get_final_adaptations(problem_instance, best_params)
         
         wandb.log({'Adaptation': adaptation})
-        wandb.log({'Reward': reward})
         wandb.finish()
         
         return adaptation

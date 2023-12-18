@@ -43,7 +43,7 @@ class PINN(nn.Module):
         self.previous_action = torch.zeros(1, self.action_dims)
 
     def forward(self, state):
-        state = state.unsqueeze(-1)
+        state = state.reshape(-1).unsqueeze(-1)
         state_dims = state.shape[0]
 
         if self.hx is None:

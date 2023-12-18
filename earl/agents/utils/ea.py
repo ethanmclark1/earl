@@ -23,7 +23,6 @@ class EA:
     def _init_hyperparams(self, percent_obstacles):
         self.max_action = 8
         self.action_cost = 0.10
-        self.sma_percentage = 0.025
         self.configs_to_consider = 30
         self.action_success_rate = 0.75
         self.percent_obstacles = percent_obstacles  
@@ -39,6 +38,7 @@ class EA:
             pickle.dump(adaptation, file)
             
     def _load(self, approach, problem_instance):
+        problem_instance = 'cheese'
         directory = f'earl/agents/history/{approach.lower()}'
         filename = f'{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
