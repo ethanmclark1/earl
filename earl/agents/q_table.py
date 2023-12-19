@@ -1,4 +1,3 @@
-import pdb
 import math
 import wandb
 import random
@@ -21,7 +20,7 @@ class BasicQTable(EA):
         self.sma_window = 500
         self.epsilon_start = 1
         self.num_episodes = 75000
-        self.epsilon_decay = 0.9999
+        self.epsilon_decay = 0.9995
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
