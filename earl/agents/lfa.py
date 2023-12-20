@@ -17,10 +17,10 @@ class BasicLFA(EA):
         self.num_features = (2*self.state_dims) + self.action_dims
         
         self.alpha = 0.0002
-        self.sma_window = 500
+        self.sma_window = 100
         self.epsilon_start = 1
-        self.num_episodes = 50000
-        self.epsilon_decay = 0.9999
+        self.num_episodes = 7500
+        self.epsilon_decay = 0.999
 
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -216,10 +216,6 @@ class CommutativeLFA(BasicLFA):
     def __init__(self, env, rng, percent_obstacles):
         super(CommutativeLFA, self).__init__(env, rng, percent_obstacles) 
         
-        # (s, a) -> (s', r)
-        self.ptr_lst = {}
-        self.previous_sample = None
-        
     def _get_state_idx(self, state):
         tmp_state = state.reshape(-1)
         binary_str = "".join(str(cell) for cell in reversed(tmp_state))
@@ -275,3 +271,10 @@ class CommutativeLFA(BasicLFA):
     
         if done:
             self.previous_sample = None
+            
+    def _generate_adaptations(self, problem_instance):
+        # (s, a) -> (s', r)
+        self.ptr_lst = {}
+        self.previous_sample = None
+        
+        return super()._generate_adaptations(problem_instance)

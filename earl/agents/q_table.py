@@ -16,11 +16,11 @@ class BasicQTable(EA):
         self.action_dims = 16 + 1
         self.nS = 2 ** 16
         
-        self.alpha = 0.0004
-        self.sma_window = 500
+        self.alpha = 0.001
+        self.sma_window = 1000
         self.epsilon_start = 1
-        self.num_episodes = 75000
-        self.epsilon_decay = 0.9995
+        self.num_episodes = 50000
+        self.epsilon_decay = 0.999
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -206,10 +206,6 @@ class HallucinatedQTable(BasicQTable):
 class CommutativeQTable(BasicQTable):
     def __init__(self, env, rng, percent_obstacles):
         super(CommutativeQTable, self).__init__(env, rng, percent_obstacles)
-        
-        # (s, a) -> (s', r)
-        self.ptr_lst = {}
-        self.previous_sample = None
     
     """
     Update Rule 0: Traditional Q-Update
@@ -248,3 +244,10 @@ class CommutativeQTable(BasicQTable):
             
         if done:
             self.previous_sample = None
+            
+    def _generate_adaptations(self, problem_instance):
+        # (s, a) -> (s', r)
+        self.ptr_lst = {}
+        self.previous_sample = None
+        
+        return super()._generate_adaptations(problem_instance)

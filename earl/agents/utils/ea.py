@@ -23,7 +23,7 @@ class EA:
     def _init_hyperparams(self, percent_obstacles):
         self.max_action = 8
         self.action_cost = 0.10
-        self.configs_to_consider = 30
+        self.configs_to_consider = 25
         self.action_success_rate = 0.75
         self.percent_obstacles = percent_obstacles  
 
@@ -60,7 +60,7 @@ class EA:
     def _generate_state(self, problem_instance):
         start, goal = problems.problems[problem_instance]['start_and_goal']
         num_bridges = self.rng.choice(self.max_action)
-        bridges = self.rng.choice(self.action_dims - 1, size=num_bridges, replace=True)
+        bridges = self.rng.choice(self.action_dims-1, size=num_bridges, replace=True)
         state = np.zeros(self.grid_dims, dtype=int)
         
         for bridge in bridges:
@@ -119,7 +119,7 @@ class EA:
             
             # Bridges cannot cover start or goal cells 
             if tmp_desc[start] == 1 or tmp_desc[goal] == 1:
-                utilities += [-self.state_dims]
+                utilities += [-self.num_cols*4]
                 continue
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
@@ -147,9 +147,11 @@ class EA:
         
         # Non-terminating actions incur an additional cost per action
         if not done:
-            util_s = self._calc_utility(problem_instance, state)
-            util_s_prime = self._calc_utility(problem_instance, next_state)
-            reward = util_s_prime - util_s - (self.action_cost * num_action)
+            if not np.array_equal(state, next_state):
+                util_s = self._calc_utility(problem_instance, state)
+                util_s_prime = self._calc_utility(problem_instance, next_state)
+                reward = util_s_prime - util_s
+            reward -= self.action_cost * num_action
         
         return reward, (done or timeout)
         
