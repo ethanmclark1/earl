@@ -13,14 +13,13 @@ class BasicQTable(EA):
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
-        self.action_dims = 16 + 1
         self.nS = 2 ** 16
         
-        self.alpha = 0.001
+        self.alpha = 0.01
         self.sma_window = 1000
         self.epsilon_start = 1
-        self.num_episodes = 50000
-        self.epsilon_decay = 0.999
+        self.num_episodes = 200000
+        self.epsilon_decay = 0.95
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -38,21 +37,6 @@ class BasicQTable(EA):
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
-
-    # Transform action so that it can be used to modify the state
-    # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
-    # 4 -> 26; 5 -> 27; 6 -> 28; 7 -> 29
-    # 8 -> 34; 9 -> 35; 10 -> 36; 11 -> 37
-    # 12 -> 42; 13 -> 43; 14 -> 44; 15 -> 45
-    def _transform_action(self, action):
-        if action == self.action_dims - 1:
-            return action
-
-        row = action // 4
-        col = action % 4
-
-        shift = 18 + row * 8 + col
-        return shift
         
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
@@ -130,7 +114,7 @@ class BasicQTable(EA):
 class HallucinatedQTable(BasicQTable):
     def __init__(self, env, rng, percent_obstacles):
         super(HallucinatedQTable, self).__init__(env, rng, percent_obstacles)
-        self.max_seq_len = 6
+        self.max_seq_len = 4
                 
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -246,7 +230,6 @@ class CommutativeQTable(BasicQTable):
             self.previous_sample = None
             
     def _generate_adaptations(self, problem_instance):
-        # (s, a) -> (s', r)
         self.ptr_lst = {}
         self.previous_sample = None
         

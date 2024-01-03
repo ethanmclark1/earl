@@ -14,15 +14,17 @@ class EA:
         self.env = env
         self.rng = rng
 
+        self.state_dims = 16
+        self.action_dims = self.state_dims + 1
+        
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
-        self.state_dims = env.observation_space.n
         self.percent_obstacles = percent_obstacles
     
     # Tabular solutions have smaller solution spaces than approximate solutions
     def _init_hyperparams(self, percent_obstacles):
         self.max_action = 8
-        self.action_cost = 0.10
+        self.action_cost = 0.50
         self.configs_to_consider = 25
         self.action_success_rate = 0.75
         self.percent_obstacles = percent_obstacles  
@@ -55,6 +57,21 @@ class EA:
         
         config = wandb.config
         return config
+    
+    # Transform action so that it can be used to modify the state
+    # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
+    # 4 -> 26; 5 -> 27; 6 -> 28; 7 -> 29
+    # 8 -> 34; 9 -> 35; 10 -> 36; 11 -> 37
+    # 12 -> 42; 13 -> 43; 14 -> 44; 15 -> 45
+    def _transform_action(self, action):
+        if action == self.action_dims - 1:
+            return action
+
+        row = action // 4
+        col = action % 4
+
+        shift = 18 + row * 8 + col
+        return shift
     
     # Generate initial state for a given problem instance
     def _generate_state(self, problem_instance):
@@ -119,7 +136,7 @@ class EA:
             
             # Bridges cannot cover start or goal cells 
             if tmp_desc[start] == 1 or tmp_desc[goal] == 1:
-                utilities += [-self.num_cols*4]
+                utilities += [-self.num_cols*2]
                 continue
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
@@ -134,7 +151,7 @@ class EA:
             utility = len(set(path) - bridges)
             utilities += [-utility]
 
-        avg_utility = np.mean(utilities)
+        avg_utility = 3*np.mean(utilities)
         return avg_utility
     
     # r(s,a,s') = u(s') - u(s) - c(a)
@@ -145,13 +162,15 @@ class EA:
         done = action == terminating_action
         timeout = num_action == self.max_action
         
-        # Non-terminating actions incur an additional cost per action
+        util_s = self._calc_utility(problem_instance, state)
         if not done:
             if not np.array_equal(state, next_state):
-                util_s = self._calc_utility(problem_instance, state)
                 util_s_prime = self._calc_utility(problem_instance, next_state)
                 reward = util_s_prime - util_s
+            # If state == next state then u(s') - u(s) = 0
             reward -= self.action_cost * num_action
+        elif done and num_action == 1:
+            reward = util_s
         
         return reward, (done or timeout)
         
