@@ -8,8 +8,8 @@ from agents.utils.ea import EA
 
 
 class BasicQTable(EA):
-    def __init__(self, env, rng, percent_obstacles):
-        super(BasicQTable, self).__init__(env, rng, percent_obstacles)
+    def __init__(self, env, rng):
+        super(BasicQTable, self).__init__(env, rng)
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
@@ -112,8 +112,8 @@ class BasicQTable(EA):
 
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, rng, percent_obstacles):
-        super(HallucinatedQTable, self).__init__(env, rng, percent_obstacles)
+    def __init__(self, env, rng):
+        super(HallucinatedQTable, self).__init__(env, rng)
         self.max_seq_len = 4
                 
     def _sample_permutations(self, action_seq):
@@ -188,8 +188,8 @@ class HallucinatedQTable(BasicQTable):
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, rng, percent_obstacles):
-        super(CommutativeQTable, self).__init__(env, rng, percent_obstacles)
+    def __init__(self, env, rng):
+        super(CommutativeQTable, self).__init__(env, rng)
     
     """
     Update Rule 0: Traditional Q-Update

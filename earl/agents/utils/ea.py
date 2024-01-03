@@ -8,8 +8,8 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, rng, percent_obstacles):
-        self._init_hyperparams(percent_obstacles)
+    def __init__(self, env, rng):
+        self._init_hyperparams()
         
         self.env = env
         self.rng = rng
@@ -19,15 +19,14 @@ class EA:
         
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
-        self.percent_obstacles = percent_obstacles
     
     # Tabular solutions have smaller solution spaces than approximate solutions
-    def _init_hyperparams(self, percent_obstacles):
+    def _init_hyperparams(self):
         self.max_action = 8
         self.action_cost = 0.50
+        self.percent_obstacles = 0.75
         self.configs_to_consider = 25
         self.action_success_rate = 0.75
-        self.percent_obstacles = percent_obstacles  
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
