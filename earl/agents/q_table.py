@@ -8,35 +8,33 @@ from agents.utils.ea import EA
 
 
 class BasicQTable(EA):
-    def __init__(self, env, rng):
-        super(BasicQTable, self).__init__(env, rng)
+    def __init__(self, env, rng, random_state):
+        super(BasicQTable, self).__init__(env, rng, random_state)
                 
         self.q_table = None
         # Add a dummy action (+1) to terminate the episode
         self.nS = 2 ** 16
         
-        self.alpha = 0.01
-        self.sma_window = 1000
+        self.alpha = 0.001
+        self.max_seq_len = 4
         self.epsilon_start = 1
-        self.num_episodes = 200000
-        self.epsilon_decay = 0.95
+        self.epsilon_decay = 0.99
+        self.sma_window = 1000 if random_state else 500
+        self.num_episodes = 25000 if random_state else 5000
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
+        config.sma_window = self.sma_window
         config.max_action = self.max_action
         config.action_cost = self.action_cost
+        config.max_seq_len = self.max_seq_len
+        config.random_state = self.random_state
         config.num_episodes = self.num_episodes
         config.epsilon_decay = self.epsilon_decay
-        config.percent_obstacles = self.percent_obstacles
+        config.percent_holes = self.percent_holes
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
-    
-    def _get_state_idx(self, state):
-        mutable_state = state[2:6, 2:6].reshape(-1)
-        binary_str = "".join(str(cell) for cell in reversed(mutable_state))
-        state_idx = int(binary_str, 2)
-        return state_idx   
         
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
@@ -49,23 +47,27 @@ class BasicQTable(EA):
         return transformed_action, original_action
     
     def _update_q_table(self, state, action, reward, next_state, done):
-        action_idx = action
-        state_idx = self._get_state_idx(state)
-        next_state_idx = self._get_state_idx(next_state)
+        a = action
+        s = self._get_state_idx(state)
+        s_prime = self._get_state_idx(next_state)
         
-        td_target = reward + (1 - done) * self.q_table[next_state_idx].max() 
-        td_error = td_target - self.q_table[state_idx, action_idx]
+        td_target = reward + (1 - done) * self.q_table[s_prime].max() 
+        td_error = td_target - self.q_table[s, a]
         
-        self.q_table[state_idx, action_idx] = self.q_table[state_idx, action_idx] + self.alpha * td_error
+        self.q_table[s, a] += self.alpha * td_error
     
     def _train(self, problem_instance):
         rewards = []
         
+        best_reward = -np.inf
+        best_action_seq = None
+        
         for _ in range(self.num_episodes):
             done = False
             num_action = 0
+            action_seq = []
             episode_reward = 0
-            state = self._generate_state(problem_instance)
+            state = self._get_state(problem_instance)
             while not done:
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
@@ -74,47 +76,107 @@ class BasicQTable(EA):
                 self._update_q_table(state, original_action, reward, next_state, done)
                 state = next_state
                 episode_reward += reward
+                action_seq += [original_action]
                 
             self.epsilon *= self.epsilon_decay
             
             rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
-                        
-    def _get_final_adaptations(self, problem_instance):
-        done = False
-        num_action = 0
-        action_seq = []
-        self.epsilon = 0
-        state = np.zeros(self.grid_dims, dtype=int)
-        while not done:
-            num_action += 1
-            transformed_action, original_action = self._select_action(state)
-            _, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
             
-            state = next_state
-            action_seq += [original_action]
+            if episode_reward > best_reward:
+                best_action_seq = action_seq
+                best_reward = episode_reward
             
-        return action_seq
+        return best_action_seq, best_reward
+    
+    def _get_final_adaptation(self, problem_instance):
+        best_reward = -np.inf
+        best_action_seq = None
+        
+        for _ in range(25):
+            done = False
+            num_action = 0
+            action_seq = []
+            self.epsilon = 0
+            episode_reward = 0
+            state = np.zeros(self.grid_dims, dtype=int)
+            while not done:
+                num_action += 1
+                transformed_action, original_action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
+                
+                state = next_state
+                action_seq += [original_action]
+                episode_reward += reward
+                
+            if episode_reward > best_reward:
+                best_reward = episode_reward
+                best_action_seq = action_seq
+            
+            return best_action_seq, best_reward
         
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
         self.q_table = np.zeros((self.nS, self.action_dims))
         
+        self._set_max_action(problem_instance)
         self._init_wandb(problem_instance)
-        self._train(problem_instance)
-        adaptation = self._get_final_adaptations(problem_instance)
+        best_adaptation, best_reward = self._train(problem_instance)
         
-        wandb.log({'Adaptation': adaptation})
+        if self.random_state:
+            best_adaptation, best_reward = self._get_final_adaptation(problem_instance)
+        
+        wandb.log({'Adaptation': best_adaptation})
+        wandb.log({'Final Reward': best_reward})
         wandb.finish()
         
-        return adaptation
+        return best_adaptation
+    
+    
+class CommutativeQTable(BasicQTable):
+    def __init__(self, env, rng, random_state):
+        super(CommutativeQTable, self).__init__(env, rng, random_state)
+    
+    """
+    Update Rule 0: Traditional Q-Update
+    Q(s_1, b) = Q(s_1, b) + alpha * (r_1 + * max_a Q(s', a) - Q(s_1, b))
+    Update Rule 1: Commutative Q-Update
+    Q(s_2, a) = Q(s_2, a) + alpha * (r_0 - r_2 + r_1 + max_a Q(s', a) - Q(s_2, a))
+    """
+    def _update_q_table(self, state, action, reward, next_state, done):
+        super()._update_q_table(state, action, reward, next_state, done)
+        
+        state_idx = self._get_state_idx(state)
+        self.ptr_lst[(state_idx, action)] = (reward, next_state)
+        
+        if self.previous_sample is None:
+            self.previous_sample = (state_idx, action, reward)
+        else:
+            prev_state_idx, prev_action, prev_reward = self.previous_sample
+            
+            if (prev_state_idx, action) in self.ptr_lst:
+                r_2, s_2 = self.ptr_lst[(prev_state_idx, action)]
+                r_3 = prev_reward + reward - r_2
+                
+                super()._update_q_table(s_2, prev_action, r_3, next_state, done)
+                
+            self.previous_sample = (state_idx, action, reward)
+            self.ptr_lst[(state_idx, action)] = (reward, next_state)
+            
+        if done:
+            self.previous_sample = None
+            
+    def _generate_adaptations(self, problem_instance):
+        self.ptr_lst = {}
+        self.previous_sample = None
+        
+        return super()._generate_adaptations(problem_instance)
 
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(HallucinatedQTable, self).__init__(env, rng)
-        self.max_seq_len = 4
+    def __init__(self, env, rng, random_state):
+        super(HallucinatedQTable, self).__init__(env, rng, random_state)
                 
     def _sample_permutations(self, action_seq):
         permutations = {}
@@ -149,7 +211,6 @@ class HallucinatedQTable(BasicQTable):
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             num_action = 0
-            episode_reward = 0
             state = start_state
             for original_action in permutation:
                 num_action += 1
@@ -158,17 +219,19 @@ class HallucinatedQTable(BasicQTable):
                     
                 self._update_q_table(state, original_action, reward, next_state, done)
                 state = next_state
-                episode_reward += reward
     
     def _train(self, problem_instance):
         rewards = []
+        
+        best_reward = -np.inf
+        best_action_seq = None
         
         for _ in range(self.num_episodes):
             done = False
             num_action = 0
             action_seq = []
             episode_reward = 0
-            start_state = self._generate_state(problem_instance)
+            start_state = self._get_state(problem_instance)
             state = start_state
             while not done:
                 num_action += 1
@@ -185,52 +248,9 @@ class HallucinatedQTable(BasicQTable):
             rewards.append(episode_reward)
             avg_rewards = np.mean(rewards[-self.sma_window:])
             wandb.log({"Average Reward": avg_rewards})
-    
-    
-class CommutativeQTable(BasicQTable):
-    def __init__(self, env, rng):
-        super(CommutativeQTable, self).__init__(env, rng)
-    
-    """
-    Update Rule 0: Traditional Q-Update
-    Q(s_1, b) = Q(s_1, b) + alpha * (r_1 + * max_a Q(s', a) - Q(s_1, b))
-    Update Rule 1: Commutative Q-Update
-    Q(s_2, a) = Q(s_2, a) + alpha * (r_0 - r_2 + r_1 + max_a Q(s', a) - Q(s_2, a))
-    """
-    def _update_q_table(self, state, action, reward, next_state, done):
-        super()._update_q_table(state, action, reward, next_state, done)
-        
-        if self.previous_sample is None:
-            s = self._get_state_idx(state)
-            a = action
-            r_0 = reward
-            s_1 = self._get_state_idx(next_state)
             
-            self.previous_sample = (s, a, r_0)
-            self.ptr_lst[(s, a)] = (s_1, r_0)
-        else:
-            s, a, r_0 = self.previous_sample
-            s_1 = self._get_state_idx(state)
-            b = action
-            r_1 = reward
-            s_prime = self._get_state_idx(next_state)
+            if episode_reward > best_reward:
+                best_action_seq = action_seq
+                best_reward = episode_reward
             
-            if (s, b) in self.ptr_lst:
-                s_2, r_2 = self.ptr_lst[(s, b)]
-                
-                td_target = r_0 - r_2 + r_1 + (1 - done) * self.q_table[s_prime].max()
-                td_error = td_target - self.q_table[s_2, a]
-                
-                self.q_table[s_2, a] = self.q_table[s_2, a] + self.alpha * td_error
-                
-            self.previous_sample = (s_1, b, r_1)
-            self.ptr_lst[(s_1, b)] = (s_prime, r_1)
-            
-        if done:
-            self.previous_sample = None
-            
-    def _generate_adaptations(self, problem_instance):
-        self.ptr_lst = {}
-        self.previous_sample = None
-        
-        return super()._generate_adaptations(problem_instance)
+        return best_action_seq, best_reward

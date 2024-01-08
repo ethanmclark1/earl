@@ -8,7 +8,7 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, rng):
+    def __init__(self, env, rng, random_state):
         self._init_hyperparams()
         
         self.env = env
@@ -17,14 +17,20 @@ class EA:
         self.state_dims = 16
         self.action_dims = self.state_dims + 1
         
+        if random_state:
+            self.random_state = True
+            self._get_state = self._generate_state
+        else:
+            self.random_state = False
+            self._get_state = self._generate_fixed_state
+        
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
     
     # Tabular solutions have smaller solution spaces than approximate solutions
     def _init_hyperparams(self):
-        self.max_action = 8
-        self.action_cost = 0.50
-        self.percent_obstacles = 0.75
+        self.action_cost = 0.05
+        self.percent_holes = 0.75
         self.configs_to_consider = 25
         self.action_success_rate = 0.75
 
@@ -57,6 +63,42 @@ class EA:
         config = wandb.config
         return config
     
+    # Set the maximum number of actions that can be taken in a single episode
+    # according to the problem instance
+    def _set_max_action(self, problem_instance):
+        if problem_instance == 'cross':
+            self.max_action = 10
+        elif problem_instance == 'twister':
+            self.max_action = 12
+    
+    def _generate_fixed_state(self, problem_instance):
+        return np.zeros(self.grid_dims, dtype=int)
+    
+    # Generate initial state for a given problem instance
+    def _generate_state(self, problem_instance):
+        houses = problems.problems[problem_instance]['houses']
+        num_bridges = self.rng.choice(self.max_action)
+        bridges = self.rng.choice(self.action_dims-1, size=num_bridges, replace=True)
+        state = np.zeros(self.grid_dims, dtype=int)
+        
+        for bridge in bridges:
+            if hasattr(self, '_transform_action'):
+                bridge = self._transform_action(bridge)
+            row = bridge // self.num_cols
+            col = bridge % self.num_cols
+            bridge = (row, col)
+            if bridge in houses:
+                continue
+            state[bridge] = 1
+            
+        return state
+    
+    def _get_state_idx(self, state):
+        mutable_state = state[2:6, 2:6].reshape(-1)
+        binary_str = "".join(str(cell) for cell in reversed(mutable_state))
+        state_idx = int(binary_str, 2)
+        return state_idx   
+    
     # Transform action so that it can be used to modify the state
     # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
     # 4 -> 26; 5 -> 27; 6 -> 28; 7 -> 29
@@ -72,25 +114,6 @@ class EA:
         shift = 18 + row * 8 + col
         return shift
     
-    # Generate initial state for a given problem instance
-    def _generate_state(self, problem_instance):
-        start, goal = problems.problems[problem_instance]['start_and_goal']
-        num_bridges = self.rng.choice(self.max_action)
-        bridges = self.rng.choice(self.action_dims-1, size=num_bridges, replace=True)
-        state = np.zeros(self.grid_dims, dtype=int)
-        
-        for bridge in bridges:
-            if hasattr(self, '_transform_action'):
-                bridge = self._transform_action(bridge)
-            row = bridge // self.num_cols
-            col = bridge % self.num_cols
-            bridge = (row, col)
-            if bridge == start or bridge == goal:
-                continue
-            state[bridge] = 1
-            
-        return state
-    
     def _place_bridge(self, state, action):
         next_state = copy.deepcopy(state)
         row = action // self.num_cols
@@ -101,7 +124,7 @@ class EA:
     
     def _create_graph(self):
         graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
-        nx.set_edge_attributes(graph, 5, 'weight')
+        nx.set_edge_attributes(graph, 10, 'weight')
         return graph
     
     # Calculate utility for a given state by averaging A* path lengths over multiple trials
@@ -131,7 +154,7 @@ class EA:
         for _ in range(self.configs_to_consider):
             tmp_desc = copy.deepcopy(desc)
             tmp_graph = copy.deepcopy(graph)
-            start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.percent_obstacles)
+            start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.percent_holes)
             
             # Bridges cannot cover start or goal cells 
             if tmp_desc[start] == 1 or tmp_desc[goal] == 1:
@@ -150,7 +173,7 @@ class EA:
             utility = len(set(path) - bridges)
             utilities += [-utility]
 
-        avg_utility = 3*np.mean(utilities)
+        avg_utility = np.mean(utilities)
         return avg_utility
     
     # r(s,a,s') = u(s') - u(s) - c(a)
