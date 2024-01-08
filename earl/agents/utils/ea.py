@@ -13,16 +13,11 @@ class EA:
         
         self.env = env
         self.rng = rng
+        self.random_state = random_state
 
         self.state_dims = 16
-        self.action_dims = self.state_dims + 1
-        
-        if random_state:
-            self.random_state = True
-            self._get_state = self._generate_state
-        else:
-            self.random_state = False
-            self._get_state = self._generate_fixed_state
+        self.action_dims = self.state_dims + 1        
+        self._get_state = self._generate_state if random_state else self._generate_fixed_state
         
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape

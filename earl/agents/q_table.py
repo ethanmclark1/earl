@@ -100,7 +100,7 @@ class BasicQTable(EA):
             action_seq = []
             self.epsilon = 0
             episode_reward = 0
-            state = np.zeros(self.grid_dims, dtype=int)
+            state = self._generate_fixed_state(problem_instance)
             while not done:
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
