@@ -1,6 +1,3 @@
-import copy
-import numpy as np
-
 desc = [
     [0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0],
