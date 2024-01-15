@@ -67,7 +67,7 @@ class EA:
             self.max_action = 12
     
     def _generate_fixed_state(self, problem_instance):
-        return np.zeros(self.grid_dims, dtype=int)
+        return np.zeros(self.grid_dims, dtype=int), []
     
     # Generate initial state for a given problem instance
     def _generate_state(self, problem_instance):
@@ -86,7 +86,7 @@ class EA:
                 continue
             state[bridge] = 1
             
-        return state
+        return state, bridges
     
     def _get_state_idx(self, state):
         mutable_state = state[2:6, 2:6].reshape(-1)
@@ -171,6 +171,15 @@ class EA:
         avg_utility = np.mean(utilities)
         return avg_utility
     
+    def _get_next_state(self, state, action):
+        next_state = copy.deepcopy(state)
+        terminating_action = self.action_dims - 1
+        # Add stochasticity to actions
+        if action != terminating_action and self.action_success_rate > self.rng.random():
+            next_state = self._place_bridge(state, action)
+            
+        return next_state
+    
     # r(s,a,s') = u(s') - u(s) - c(a)
     def _get_reward(self, problem_instance, state, action, next_state, num_action):
         reward = 0
@@ -193,13 +202,7 @@ class EA:
         
     # Apply adaptation to task environment
     def _step(self, problem_instance, state, action, num_action):
-        next_state = copy.deepcopy(state)
-        terminating_action = self.action_dims - 1
-        
-        # Add stochasticity to actions
-        if action != terminating_action and self.action_success_rate > self.rng.random():
-            next_state = self._place_bridge(state, action)
-        
+        next_state = self._get_next_state(state, action)
         reward, done = self._get_reward(problem_instance, state, action, next_state, num_action)  
         
         return reward, next_state, done
