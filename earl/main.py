@@ -1,10 +1,8 @@
-import problems
 import numpy as np
 import gymnasium as gym
 
 from arguments import get_arguments
 
-from itertools import product
 from agents.q_table import BasicQTable, HallucinatedQTable, CommutativeQTable
 from agents.lfa import BasicLFA, HallucinatedLFA, CommutativeLFA
 from agents.attention_neuron import AttentionNeuron
