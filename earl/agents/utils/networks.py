@@ -3,6 +3,31 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+
+torch.manual_seed(42)
+
+
+class RewardEstimator(nn.Module):
+    def __init__(self, lr):
+        super(RewardEstimator, self).__init__()
+        input_dims = 3
+        output_dims = 1
+        self.fc1 = nn.Linear(in_features=input_dims, out_features=32)
+        self.fc2 = nn.Linear(in_features=32, out_features=16)
+        self.fc3 = nn.Linear(in_features=16, out_features=output_dims)
+        
+        self.optim = torch.optim.Adam(self.parameters(), lr=lr)
+        
+    def forward(self, state, action, next_state):
+        state = torch.tensor(state).unsqueeze(-1)
+        action = torch.tensor(action).unsqueeze(-1)
+        next_state = torch.tensor(next_state).unsqueeze(-1)
+        
+        x = torch.cat([state, action, next_state], dim=-1).float()
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+    
     
 # Permutation Invariant Neural Network 
 # https://attentionneuron.github.io/
