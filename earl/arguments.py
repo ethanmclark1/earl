@@ -32,8 +32,8 @@ def get_arguments():
     parser.add_argument(
         '--reward_prediction_type', 
         type=str, 
-        default='linear', 
-        choices=['table', 'median_table', 'mean_table', 'linear', 'noisy_linear', 'median_noisy_linear', 'mean_noisy_linear', 'noisiest_linear', 'median_noisiest_linear', 'mean_noisiest_linear'], 
+        default='approximate', 
+        choices=['lookup', 'approximate'], 
         help='Type of way to predict the reward r_3 {default_val: %(default)s}'
         )
     
