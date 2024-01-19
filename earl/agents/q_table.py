@@ -29,7 +29,6 @@ class BasicQTable(EA):
         self.estimator_alpha = 0.0002
         self.offline_episodes = 100000
         self.reward_prediction_type = reward_prediction_type
-        self.epsilon_decay = 0.0003 if random_state else 0.00001
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)

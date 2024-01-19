@@ -22,7 +22,6 @@ class EA:
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
     
-    # Tabular solutions have smaller solution spaces than approximate solutions
     def _init_hyperparams(self):
         self.action_cost = 0.05
         self.percent_holes = 0.75
@@ -101,8 +100,11 @@ class EA:
     def _set_max_action(self, problem_instance):
         if problem_instance == 'cross':
             self.max_action = 10
+            # TODO: Look into a bigger value for random_state
+            self.epsilon_decay = 0.0003 if self.random_state else 0.00001
         elif problem_instance == 'twister':
             self.max_action = 12
+            self.epsilon_decay = 0.0025 if self.random_state else 0.000001
     
     def _generate_fixed_state(self, problem_instance):
         return np.zeros(self.grid_dims, dtype=int), []
