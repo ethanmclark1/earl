@@ -8,8 +8,9 @@ from agents.utils.ea import EA
 
 # Linear Function Approximation
 class BasicLFA(EA):
-    def __init__(self, env, rng, random_state):
+    def __init__(self, env, rng, random_state, reward_prediction_type=None):
         super(BasicLFA, self).__init__(env, rng, random_state)
+        self.random_state = random_state
         
         self.weights = None
         # Add a dummy action (+1) to terminate the episode
@@ -21,6 +22,7 @@ class BasicLFA(EA):
         self.epsilon_decay = 0.99
         self.sma_window = 1000 if random_state else 250
         self.num_episodes = 10000 if random_state else 2500
+        self.reward_prediction_type = reward_prediction_type
 
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -35,6 +37,7 @@ class BasicLFA(EA):
         config.percent_holes = self.percent_holes
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
+        config.reward_prediction_type = self.reward_prediction_type
         
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
@@ -168,8 +171,8 @@ class BasicLFA(EA):
     
     
 class CommutativeLFA(BasicLFA):
-    def __init__(self, env, rng, random_state):
-        super(CommutativeLFA, self).__init__(env, rng, random_state) 
+    def __init__(self, env, rng, random_state, reward_prediction_type):
+        super(CommutativeLFA, self).__init__(env, rng, random_state, reward_prediction_type) 
         
     def _get_state_idx(self, state):
         tmp_state = state.reshape(-1)
@@ -251,17 +254,25 @@ class HallucinatedLFA(BasicLFA):
         return list(permutations.keys()) 
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, problem_instance, start_state, action_seq):        
+    def _hallucinate(self, start_state, action_seq, episode_reward):
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             num_action = 0
             state = start_state
-            for action in permutation:
+            terminating_action = permutation[-1]
+            for original_action in permutation:
                 num_action += 1
                 transformed_action = self._transform_action(original_action)
-                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                next_state = self._get_next_state(state, transformed_action)
+                
+                if original_action == terminating_action:
+                    reward = episode_reward
+                    done = True
+                else:
+                    reward = 0
+                    done = False
                     
-                self._update_weights(state, action, reward, next_state, done)
+                self._update_weights(state, original_action, reward, next_state, done)
                 state = next_state
     
     def _train(self, problem_instance):
@@ -286,7 +297,7 @@ class HallucinatedLFA(BasicLFA):
                 action_seq += [original_action]
                 episode_reward += reward
                 
-            self._hallucinate(problem_instance, start_state, action_seq)
+            self._hallucinate(start_state, action_seq, episode_reward)
             self.epsilon *= self.epsilon_decay
             
             rewards.append(episode_reward)

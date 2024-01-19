@@ -6,6 +6,14 @@ def get_arguments():
         )
     
     parser.add_argument(
+        '--is_online',
+        type=int,
+        default=0,
+        choices=[0, 1],
+        help='Train the agent online or offline {default_val: %(default)s, choices: [%(choices)s]}'
+        )
+    
+    parser.add_argument(
         '--approach', 
         type=str, 
         default='commutative_q_table', 
@@ -39,4 +47,4 @@ def get_arguments():
     
     args = parser.parse_args()
         
-    return args.approach, args.problem_instance, bool(args.random_state), args.reward_prediction_type
+    return bool(args.is_online), args.approach, args.problem_instance, bool(args.random_state), args.reward_prediction_type

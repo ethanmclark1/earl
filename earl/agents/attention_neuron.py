@@ -18,18 +18,18 @@ from agents.utils.networks import PINN
 
 # CMA-ES with Attention Mechanism
 class AttentionNeuron(EA):
-    def __init__(self, env, rng, percent_obstacles):
-        super(AttentionNeuron, self).__init__(env, rng, percent_obstacles)
+    def __init__(self, env, rng, random_state):
+        super(AttentionNeuron, self).__init__(env, rng, random_state)
         
         self.attention_neuron = None
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = env.observation_space.n + 1
         
-        self.sma_window = 100
+        self.sma_window = 50
         self.n_processes = 32
-        self.n_population = 30
-        self.n_generations = 2500
-        self.fitness_samples = 30
+        self.n_population = 50
+        self.n_generations = 1000
+        self.fitness_samples = 20
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -39,7 +39,7 @@ class AttentionNeuron(EA):
         config.n_population = self.n_population
         config.n_generations = self.n_generations
         config.fitness_samples = self.fitness_samples
-        config.percent_obstacles = self.percent_obstacles
+        config.percent_holes = self.percent_holes
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
         
@@ -69,7 +69,7 @@ class AttentionNeuron(EA):
             done = False
             model.reset()
             num_action = 0
-            state = torch.tensor(self._generate_state(problem_instance), dtype=torch.float32)
+            state = torch.tensor(self._generate_random_state(problem_instance), dtype=torch.float32)
             
             while not done:
                 num_action += 1
@@ -107,7 +107,7 @@ class AttentionNeuron(EA):
             pop_fitness = pool.starmap(self._calc_fitness, args)   
             
             # Negate fitness due to CMA-ES minimizing the cost
-            solver.tell(pop_params, [i for i in pop_fitness])
+            solver.tell(pop_params, [-i for i in pop_fitness])
             
             max_pop_fitness = max(pop_fitness)    
             fitnesses.append(max_pop_fitness)

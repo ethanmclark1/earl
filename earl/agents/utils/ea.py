@@ -17,7 +17,7 @@ class EA:
 
         self.state_dims = 16
         self.action_dims = self.state_dims + 1        
-        self._get_state = self._generate_state if random_state else self._generate_fixed_state
+        self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
@@ -58,6 +58,44 @@ class EA:
         config = wandb.config
         return config
     
+    def _save_traces(self, problem_instance, traces):
+        directory = f'earl/agents/utils/data/'
+        filename = f'{problem_instance}_random_state_{self.random_state}.npy'
+        file_path = os.path.join(directory, filename)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            
+        with open(file_path, 'wb') as file:
+            np.save(file, traces)
+            
+    def _load_traces(self, problem_instance):
+        directory = f'earl/agents/utils/data/'
+        filename = f'{problem_instance}_random_state_{self.random_state}.npy'
+        file_path = os.path.join(directory, filename)
+        with open(file_path, 'rb') as f:
+            traces = np.load(f)
+        return traces
+    
+    def _generate_traces(self, problem_instance):
+        traces = np.zeros((self.offline_episodes * self.max_action, 5))
+        
+        for episode in range(self.offline_episodes):
+            done = False
+            state, bridges = self._generate_init_state(problem_instance)
+            num_action = len(bridges)
+            while not done:
+                num_action += 1
+                transformed_action, original_action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
+                
+                state_idx = self._get_state_idx(state)
+                next_state_idx = self._get_state_idx(next_state)
+                traces[episode * self.max_action + num_action - 1] = np.array((state_idx, original_action, reward, next_state_idx, done))
+                            
+                state = next_state
+        
+        return traces
+    
     # Set the maximum number of actions that can be taken in a single episode
     # according to the problem instance
     def _set_max_action(self, problem_instance):
@@ -70,7 +108,7 @@ class EA:
         return np.zeros(self.grid_dims, dtype=int), []
     
     # Generate initial state for a given problem instance
-    def _generate_state(self, problem_instance):
+    def _generate_random_state(self, problem_instance):
         houses = problems.problems[problem_instance]['houses']
         num_bridges = self.rng.choice(self.max_action)
         bridges = self.rng.choice(self.action_dims-1, size=num_bridges, replace=True)
@@ -93,6 +131,18 @@ class EA:
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
+    
+    def _get_state_from_idx(self, state_idx):
+        binary_str = format(state_idx, f'0{16}b')
+        state = np.zeros(self.grid_dims, dtype=int)
+        start_row, start_col = 2, 2
+
+        for i, bit in enumerate(reversed(binary_str)):
+            row = i // 4  
+            col = i % 4
+            state[start_row + row, start_col + col] = int(bit)
+        
+        return state
     
     # Transform action so that it can be used to modify the state
     # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
@@ -119,7 +169,7 @@ class EA:
     
     def _create_graph(self):
         graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
-        nx.set_edge_attributes(graph, 10, 'weight')
+        nx.set_edge_attributes(graph, 25, 'weight')
         return graph
     
     # Calculate utility for a given state by averaging A* path lengths over multiple trials
@@ -220,6 +270,17 @@ class EA:
         
         print(f'{approach} adaptations for {problem_instance.capitalize()} problem instance:\n{adaptations}\n')
         return adaptations
+    
+    def _get_traces(self, problem_instance):
+        try:
+            traces = self._load_traces(problem_instance)
+        except FileNotFoundError:
+            print(f'No stored traces for {problem_instance.capitalize()} problem instance.')
+            print('Generating new traces...')
+            traces = self._generate_traces(problem_instance)
+            self._save_traces(problem_instance, traces)
+        
+        return traces
     
     # Apply adaptations to task environment
     def get_adapted_env(self, desc, adaptations):
