@@ -12,9 +12,9 @@ class RewardEstimator(nn.Module):
         super(RewardEstimator, self).__init__()
         input_dims = 3
         output_dims = 1
-        self.fc1 = nn.Linear(in_features=input_dims, out_features=32)
-        self.fc2 = nn.Linear(in_features=32, out_features=16)
-        self.fc3 = nn.Linear(in_features=16, out_features=output_dims)
+        self.fc1 = nn.Linear(in_features=input_dims, out_features=64)
+        self.fc2 = nn.Linear(in_features=64, out_features=32)
+        self.fc3 = nn.Linear(in_features=32, out_features=output_dims)
         
         self.optim = torch.optim.Adam(self.parameters(), lr=lr)
         
