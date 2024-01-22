@@ -16,18 +16,20 @@ class BasicQTable(EA):
         # Add a dummy action (+1) to terminate the episode
         self.nS = 2 ** 16
 
-        self.weight_0 = 0.7
-        self.weight_1 = 0.3
         self.alpha = 0.0005
+        self.weight_0 = 0.60
+        self.weight_1 = 0.20
+        self.weight_2 = 0.20
         self.max_seq_len = 7
         self.epsilon_start = 1
         self.sma_window = 2500
         self.min_epsilon = 0.10
-        self.eval_episodes = 2500
-        self.num_episodes = 250000
+        self.eval_episodes = 500
+        self.num_episodes = 400000
         self.is_online = is_online
-        self.estimator_alpha = 0.0002
-        self.offline_episodes = 100000
+        self.sma_window_eval = 500
+        self.estimator_alpha = 0.001
+        self.offline_episodes = 200000
         self.reward_prediction_type = reward_prediction_type
         
     def _init_wandb(self, problem_instance):
@@ -35,6 +37,7 @@ class BasicQTable(EA):
         config.alpha = self.alpha
         config.weight_0 = self.weight_0
         config.weight_1 = self.weight_1
+        config.weight_2 = self.weight_2
         config.is_online = self.is_online
         config.sma_window = self.sma_window
         config.max_action = self.max_action
@@ -46,6 +49,7 @@ class BasicQTable(EA):
         config.eval_episodes = self.eval_episodes
         config.epsilon_decay = self.epsilon_decay
         config.percent_holes = self.percent_holes
+        config.sma_window_eval = self.sma_window_eval
         config.estimator_alpha = self.estimator_alpha
         config.offline_episodes = self.offline_episodes
         config.action_success_rate = self.action_success_rate
@@ -70,15 +74,19 @@ class BasicQTable(EA):
         state = self._get_state_idx(state)
         next_state = self._get_state_idx(next_state)
         
+        if traditional_update and self.reward_prediction_type == 'approximate':
+            step = torch.FloatTensor([state, action, next_state])
+            reward = self.reward_estimator(step)
+        
         td_target = reward + (1 - done) * self.q_table[next_state].max() 
         td_error = td_target - self.q_table[state, action]
         
         self.q_table[state, action] += self.alpha * td_error
         
         if traditional_update:
-            losses['traditional_loss'] += abs(td_error)
+            losses['traditional_loss'] += abs(td_error.item())
         else:
-            losses['commutative_loss'] += abs(td_error.item())
+            losses['commutative_loss'] += abs(td_error)
             
         return losses
             
@@ -140,11 +148,6 @@ class BasicQTable(EA):
     def _offline_train(self, traces):
         non_empty_rows = ~np.all(traces == 0, axis=1)
         filtered_traces = traces[non_empty_rows]
-
-        traditional_losses = []
-        commutative_losses = []
-        step_losses = []
-        trace_losses = []
         
         episode = 0
         num_action = 0
@@ -158,28 +161,11 @@ class BasicQTable(EA):
             next_state = self._get_state_from_idx(int(next_state_idx))
             done = bool(done)
             
-            losses = self._update_q_table(state, action, reward, next_state, done, losses, episode)
+            self._update_q_table(state, action, reward, next_state, done, losses, episode)
             
-            if done:
-                traditional_losses += [losses['traditional_loss']]
-                commutative_losses += [losses['commutative_loss']]
-                step_losses += [losses['step_loss'] / num_action]
-                trace_losses += [losses['trace_loss'] / num_action]
-                
-                avg_traditional_loss = np.mean(traditional_losses[-self.sma_window:])
-                avg_commutative_loss = np.mean(commutative_losses[-self.sma_window:])
-                avg_step_loss = np.mean(step_losses[-self.sma_window:])
-                avg_trace_loss = np.mean(trace_losses[-self.sma_window:])
-                
-                wandb.log({
-                    "Average Traditional Loss": avg_traditional_loss,
-                    "Average Commutative Loss": avg_commutative_loss,
-                    "Average Step Loss": avg_step_loss, 
-                    "Average Trace Loss": avg_trace_loss}, step=episode)
-                
+            if done:                
                 episode += 1
                 num_action = 0
-                losses = {'traditional_loss': 0, 'commutative_loss': 0, 'step_loss': 0, 'trace_loss': 0}
     
     def _evaluate(self, problem_instance):
         rewards = []
@@ -187,7 +173,7 @@ class BasicQTable(EA):
         best_action_seq = None
         
         self.epsilon = 0
-        for _ in range(self.eval_episodes):
+        for episode in range(self.eval_episodes):
             done = False
             action_seq = []
             episode_reward = 0
@@ -203,13 +189,12 @@ class BasicQTable(EA):
                 action_seq += [original_action]
                 
             rewards.append(episode_reward)
+            avg_reward = np.mean(rewards[-self.sma_window_eval:])
+            wandb.log({"Average Reward": avg_reward}, step=episode)
             
             if episode_reward > best_reward:
                 best_action_seq = action_seq
                 best_reward = episode_reward
-            
-        avg_rewards = np.mean(rewards)
-        wandb.log({"Average Reward": avg_rewards})
         
         return best_action_seq, best_reward
             
@@ -238,28 +223,24 @@ class CommutativeQTable(BasicQTable):
         super(CommutativeQTable, self).__init__(env, rng, is_online, random_state, reward_prediction_type)        
         self.reward_estimator = RewardEstimator(self.estimator_alpha)
     
-    def _update_estimator(self, trace_0, trace_1):
-        # Invididual trace updates
-        step_0, r_0 = trace_0[0][:3], torch.tensor(trace_0[0][3], dtype=torch.float32).unsqueeze(-1)
-        step_1, r_1 = trace_0[1][:3], torch.tensor(trace_0[1][3], dtype=torch.float32).unsqueeze(-1)
+    def _update_estimator(self, traces, r_0, r_1):
+        traces = torch.FloatTensor(traces)
+        r_0 = torch.FloatTensor([r_0])
+        r_1 = torch.FloatTensor([r_1])
         
-        r0_pred = self.reward_estimator(*step_0)
-        r1_pred = self.reward_estimator(*step_1)
+        rewards = self.reward_estimator(traces)
+        combined_r0r1 = torch.cat([r_0, r_1], dim=-1).view(-1, 1)
         
-        step_loss = F.mse_loss(r_0, r0_pred) + F.mse_loss(r_1, r1_pred)
+        step_loss = F.mse_loss(combined_r0r1, rewards[:2])
+        trace_loss_r2 = F.mse_loss(r_0 + r_1, rewards[2] + rewards[3].detach())
+        trace_loss_r3 = F.mse_loss(r_0 + r_1, rewards[2].detach() + rewards[3])
+        combined_loss = self.weight_0 * step_loss + self.weight_1 * trace_loss_r2 + self.weight_2 * trace_loss_r3
         
-        # Combined trace updates
-        step_0, r_2 = trace_1[0][:3], trace_1[0][3]
-        step_1, r_3 = trace_1[1][:3], trace_1[1][3]
-        
-        trace_loss = F.mse_loss(r_0 + r_1, r_2 + r_3)
-        
-        self.reward_estimator.zero_grad()
-        total_loss = self.weight_0 * step_loss + self.weight_1 * trace_loss
-        total_loss.backward()
+        self.reward_estimator.optim.zero_grad()
+        combined_loss.backward()
         self.reward_estimator.optim.step()
         
-        return step_loss.item(), trace_loss.item()
+        return rewards[3].item(), step_loss.item(), trace_loss_r2.item()
         
     """
     Update Rule 0: Traditional Q-Update
@@ -285,13 +266,13 @@ class CommutativeQTable(BasicQTable):
             
             s_2 = None
             r_2 = None
-            r_3 = None
+            r3_pred = None
             
             s_idx = self._get_state_idx(s)
             if 'lookup' in self.reward_prediction_type:
                 if (s_idx, b) in self.ptr_lst:
                     r_2, s_2 = self.ptr_lst[(s_idx, b)]      
-                    r_3 = r_0 + r_1 - r_2
+                    r3_pred = r_0 + r_1 - r_2
             else:
                 transformed_action = self._transform_action(b)
                 s_2 = self._get_next_state(s, transformed_action)
@@ -300,18 +281,14 @@ class CommutativeQTable(BasicQTable):
                 s_2_idx = self._get_state_idx(s_2)
                 s_prime_idx = self._get_state_idx(s_prime)
 
-                r_2 = self.reward_estimator(s_idx, b, s_2_idx)
-                r_3 = self.reward_estimator(s_2_idx, a, s_prime_idx)
+                traces = np.array([[s_idx, a, s_1_idx], [s_1_idx, b, s_prime_idx], [s_idx, b, s_2_idx], [s_2_idx, a, s_prime_idx]])
                 
-                trace_0 = [(s_idx, a, s_1_idx, r_0), (s_1_idx, b, s_prime_idx, r_1)]
-                trace_1 = [(s_idx, b, s_2_idx, r_2), (s_2_idx, a, s_prime_idx, r_3)]
-                
-                estimator_losses = self._update_estimator(trace_0, trace_1)
-                losses['step_loss'] += estimator_losses[0]
-                losses['trace_loss'] += estimator_losses[1]
+                r3_pred, step_loss, trace_loss = self._update_estimator(traces, r_0, r_1)
+                losses['step_loss'] += step_loss
+                losses['trace_loss'] += trace_loss
          
-            if r_3 is not None:
-                losses = super()._update_q_table(s_2, a, r_3, s_prime, done, losses, episode, traditional_update=False)      
+            if r3_pred is not None:
+                losses = super()._update_q_table(s_2, a, r3_pred, s_prime, done, losses, episode, traditional_update=False)      
                 
             self.previous_sample = (s_1, b, r_1)
             

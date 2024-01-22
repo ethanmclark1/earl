@@ -100,11 +100,10 @@ class EA:
     def _set_max_action(self, problem_instance):
         if problem_instance == 'cross':
             self.max_action = 10
-            # TODO: Look into a bigger value for random_state
-            self.epsilon_decay = 0.0003 if self.random_state else 0.00001
+            self.epsilon_decay = 0.0003 if self.random_state else 0.000004
         elif problem_instance == 'twister':
             self.max_action = 12
-            self.epsilon_decay = 0.0025 if self.random_state else 0.000001
+            self.epsilon_decay = 0.00008 if self.random_state else 0.00001
     
     def _generate_fixed_state(self, problem_instance):
         return np.zeros(self.grid_dims, dtype=int), []
@@ -227,6 +226,7 @@ class EA:
         next_state = copy.deepcopy(state)
         terminating_action = self.action_dims - 1
         # Add stochasticity to actions
+        # **Action must already be transformed**
         if action != terminating_action and self.action_success_rate > self.rng.random():
             next_state = self._place_bridge(state, action)
             
