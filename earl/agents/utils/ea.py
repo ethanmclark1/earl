@@ -15,17 +15,15 @@ class EA:
         self.rng = rng
         self.random_state = random_state
 
-        self.state_dims = 16
-        self.action_dims = self.state_dims + 1        
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
     
     def _init_hyperparams(self):
-        self.action_cost = 0.05
+        self.action_cost = 0.10
         self.percent_holes = 0.75
-        self.configs_to_consider = 25
+        self.configs_to_consider = 30
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
@@ -75,6 +73,24 @@ class EA:
             traces = np.load(f)
         return traces
     
+    def _init_problem(self, problem_instance):
+        if problem_instance == 'minefield':
+            self.state_dims = 12
+            self.max_action = 10
+            self.epsilon_decay = 0.0003 if self.random_state else 0.000004
+            self.mapping = {0: 10, 1: 13, 2: 17, 3: 20,
+                            4: 22, 5: 26, 6: 37, 7: 41,
+                            8: 43, 9: 46, 10: 50, 11: 53}
+        elif problem_instance == 'neighbors':
+            self.state_dims = 16
+            self.max_action = 14
+            self.epsilon_decay = 0.00008 if self.random_state else 0.00001
+            self.mapping = {0: 17, 1: 19, 2: 20, 3: 22,
+                            4: 26, 5: 27, 6: 28, 7: 29,
+                            8: 34, 9: 35, 10: 36, 11: 37,
+                            12: 41, 13: 43, 14: 44, 15: 46
+                            }
+    
     def _generate_traces(self, problem_instance):
         traces = np.zeros((self.offline_episodes * self.max_action, 5))
         
@@ -84,7 +100,7 @@ class EA:
             num_action = len(bridges)
             while not done:
                 num_action += 1
-                transformed_action, original_action = self._select_action(state)
+                transformed_action, original_action = self._select_action(problem_instance, state)
                 reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
                 
                 state_idx = self._get_state_idx(state)
@@ -94,16 +110,6 @@ class EA:
                 state = next_state
         
         return traces
-    
-    # Set the maximum number of actions that can be taken in a single episode
-    # according to the problem instance
-    def _set_max_action(self, problem_instance):
-        if problem_instance == 'cross':
-            self.max_action = 10
-            self.epsilon_decay = 0.0003 if self.random_state else 0.000004
-        elif problem_instance == 'twister':
-            self.max_action = 12
-            self.epsilon_decay = 0.00008 if self.random_state else 0.00001
     
     def _generate_fixed_state(self, problem_instance):
         return np.zeros(self.grid_dims, dtype=int), []
@@ -128,37 +134,31 @@ class EA:
         return state, bridges
     
     def _get_state_idx(self, state):
-        mutable_state = state[2:6, 2:6].reshape(-1)
+        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
+        rows, cols = zip(*mutable_cells)
+        mutable_state = state[rows, cols]
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
     
     def _get_state_from_idx(self, state_idx):
-        binary_str = format(state_idx, f'0{16}b')
-        state = np.zeros(self.grid_dims, dtype=int)
-        start_row, start_col = 2, 2
+        binary_str = format(state_idx, f'0{len(self.mapping)}b')[::-1]
+        state = np.zeros((self.num_cols, self.num_cols), dtype=int)
 
-        for i, bit in enumerate(reversed(binary_str)):
-            row = i // 4  
-            col = i % 4
-            state[start_row + row, start_col + col] = int(bit)
-        
+        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
+        rows, cols = zip(*mutable_cells)
+
+        for i, (row, col) in enumerate(zip(rows, cols)):
+            state[row, col] = int(binary_str[i])
+
         return state
+
     
-    # Transform action so that it can be used to modify the state
-    # 0 -> 18; 1 -> 19; 2 -> 20; 3 -> 21 
-    # 4 -> 26; 5 -> 27; 6 -> 28; 7 -> 29
-    # 8 -> 34; 9 -> 35; 10 -> 36; 11 -> 37
-    # 12 -> 42; 13 -> 43; 14 -> 44; 15 -> 45
     def _transform_action(self, action):
         if action == self.action_dims - 1:
             return action
 
-        row = action // 4
-        col = action % 4
-
-        shift = 18 + row * 8 + col
-        return shift
+        return self.mapping[action]
     
     def _place_bridge(self, state, action):
         next_state = copy.deepcopy(state)
@@ -220,7 +220,7 @@ class EA:
             utilities += [-utility]
 
         avg_utility = np.mean(utilities)
-        return avg_utility
+        return 3*avg_utility
     
     def _get_next_state(self, state, action):
         next_state = copy.deepcopy(state)

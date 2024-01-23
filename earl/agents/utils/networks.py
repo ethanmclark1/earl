@@ -12,18 +12,13 @@ class RewardEstimator(nn.Module):
         super(RewardEstimator, self).__init__()
         input_dims = 3
         output_dims = 1
-        self.fc1 = nn.Linear(in_features=input_dims, out_features=64)
-        self.fc2 = nn.Linear(in_features=64, out_features=32)
-        self.fc3 = nn.Linear(in_features=32, out_features=output_dims)
+        self.fc1 = nn.Linear(in_features=input_dims, out_features=8)
+        self.fc2 = nn.Linear(in_features=8, out_features=4)
+        self.fc3 = nn.Linear(in_features=4, out_features=output_dims)
         
         self.optim = torch.optim.Adam(self.parameters(), lr=lr)
         
-    def forward(self, state, action, next_state):
-        state = torch.tensor(state).unsqueeze(-1)
-        action = torch.tensor(action).unsqueeze(-1)
-        next_state = torch.tensor(next_state).unsqueeze(-1)
-        
-        x = torch.cat([state, action, next_state], dim=-1).float()
+    def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
