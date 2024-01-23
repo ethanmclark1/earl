@@ -8,7 +8,7 @@ def get_arguments():
     parser.add_argument(
         '--is_online',
         type=int,
-        default=0,
+        default=1,
         choices=[0, 1],
         help='Train the agent online or offline {default_val: %(default)s, choices: [%(choices)s]}'
         )
@@ -18,21 +18,21 @@ def get_arguments():
         type=str, 
         default='commutative_q_table', 
         choices=['basic_q_table', 'commutative_q_table', 'hallucinated_q_table', 'basic_lfa', 'commutative_lfa', 'hallucinated_lfa', 'attention_neuron'],
-        help='Choose which approach to use {default_val: basic_q_table, choices: [%(choices)s]}'
+        help='Choose which approach to use {default_val: %(default)s, choices: [%(choices)s]}'
         )
     
     parser.add_argument(
         '--problem_instance', 
         type=str, 
-        default='cross', 
-        choices=['cross', 'twister'],
-        help='Which problem to attempt {default_val: cross, choices: [%(choices)s]}'
+        default='minefield', 
+        choices=['minefield', 'neighbors'],
+        help='Which problem to attempt {default_val: %(default)s, choices: [%(choices)s]}'
         )
             
     parser.add_argument(
         '--random_state', 
         type=int, 
-        default=0, 
+        default=1, 
         choices=[0, 1], 
         help='Generate a random initial state for the agent {default_val: None, choices: [%(choices)s]}'
         )
