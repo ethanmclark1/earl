@@ -8,22 +8,24 @@ import torch.nn.functional as F
 from agents.utils.ea import EA
 from agents.utils.networks import RewardEstimator
 
+
 class BasicQTable(EA):
     def __init__(self, env, rng, is_online, random_state, reward_prediction_type=None):
         super(BasicQTable, self).__init__(env, rng, random_state)
                 
         self.q_table = None
 
-        self.alpha = 0.001
+        self.alpha = 0.0005
         self.max_seq_len = 7
         self.epsilon_start = 1
         self.sma_window = 2500
         self.min_epsilon = 0.10
         self.eval_episodes = 500
-        self.num_episodes = 500000
+        self.num_episodes = 200000
         self.is_online = is_online
+        self.estimator_tau = 0.01
         self.sma_window_eval = 500
-        self.estimator_alpha = 0.005
+        self.estimator_alpha = 0.008
         self.offline_episodes = 200000
         self.reward_prediction_type = reward_prediction_type
         
@@ -41,8 +43,9 @@ class BasicQTable(EA):
         config.eval_episodes = self.eval_episodes
         config.epsilon_decay = self.epsilon_decay
         config.percent_holes = self.percent_holes
-        config.sma_window_eval = self.sma_window_eval
+        config.estimator_tau = self.estimator_tau
         config.estimator_alpha = self.estimator_alpha
+        config.sma_window_eval = self.sma_window_eval
         config.offline_episodes = self.offline_episodes
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
@@ -69,7 +72,7 @@ class BasicQTable(EA):
         # Use reward estimator to approximate reward for traditional Q-Update 
         if traditional_update and self.reward_prediction_type == 'approximate':
             step = torch.FloatTensor([state, action, next_state])
-            reward = self.reward_estimator(step)
+            reward = self.target_reward_estimator(step).item()
         
         td_target = reward + (1 - done) * self.q_table[next_state].max() 
         td_error = td_target - self.q_table[state, action]
@@ -77,7 +80,7 @@ class BasicQTable(EA):
         self.q_table[state, action] += self.alpha * td_error
         
         if traditional_update:
-            losses['traditional_td_error'] += abs(td_error.item())
+            losses['traditional_td_error'] += abs(td_error)
         else:
             losses['commutative_td_error'] += abs(td_error)
             
@@ -218,7 +221,6 @@ class BasicQTable(EA):
 class CommutativeQTable(BasicQTable):
     def __init__(self, env, rng, is_online, random_state, reward_prediction_type):
         super(CommutativeQTable, self).__init__(env, rng, is_online, random_state, reward_prediction_type)        
-        self.reward_estimator = RewardEstimator(self.estimator_alpha)
     
     def _update_estimator(self, traces, r_0, r_1):
         traces = torch.FloatTensor(traces)
@@ -239,6 +241,9 @@ class CommutativeQTable(BasicQTable):
         combined_loss = trace_loss_r2 + trace_loss_r3
         combined_loss.backward()
         self.reward_estimator.optim.step()
+        
+        for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
+            target_param.data.copy_(self.estimator_tau * local_param.data + (1.0 - self.estimator_tau) * target_param.data)
         
         return traces[3], step_loss.item(), trace_loss_r2.item()
         
@@ -284,7 +289,7 @@ class CommutativeQTable(BasicQTable):
                 traces = np.array([[s_idx, a, s_1_idx], [s_1_idx, b, s_prime_idx], [s_idx, b, s_2_idx], [s_2_idx, a, s_prime_idx]])
                 
                 r3_step, step_loss, trace_loss = self._update_estimator(traces, r_0, r_1)
-                r3_pred = self.reward_estimator(r3_step).item()
+                r3_pred = self.target_reward_estimator(r3_step).item()
                 
                 losses['step_loss'] += step_loss
                 losses['trace_loss'] += trace_loss
@@ -301,7 +306,10 @@ class CommutativeQTable(BasicQTable):
             
     def _generate_adaptations(self, problem_instance):
         self.ptr_lst = {}
-        self.previous_sample = None        
+        self.previous_sample = None 
+        
+        self.reward_estimator = RewardEstimator(self.estimator_alpha)
+        self.target_reward_estimator = RewardEstimator(self.estimator_alpha)       
         
         return super()._generate_adaptations(problem_instance)
     

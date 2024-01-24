@@ -1,10 +1,14 @@
 import math
 import wandb
+import torch
 import random
 import itertools
 import numpy as np
+import torch.nn.functional as F
 
 from agents.utils.ea import EA
+from agents.utils.networks import RewardEstimator
+
 
 # Linear Function Approximation
 class BasicLFA(EA):
@@ -14,14 +18,14 @@ class BasicLFA(EA):
         
         self.weights = None
         # Add a dummy action (+1) to terminate the episode
-        self.num_features = (2*self.state_dims) + self.action_dims
         
         self.alpha = 0.001
-        self.max_seq_len = 4
+        self.max_seq_len = 7
         self.epsilon_start = 1
-        self.epsilon_decay = 0.99
-        self.sma_window = 1000 if random_state else 250
-        self.num_episodes = 10000 if random_state else 2500
+        self.sma_window = 1000
+        self.min_epsilon = 0.10
+        self.num_episodes = 10000
+        self.estimator_alpha = 0.003
         self.reward_prediction_type = reward_prediction_type
 
     def _init_wandb(self, problem_instance):
@@ -29,6 +33,7 @@ class BasicLFA(EA):
         config.alpha = self.alpha
         config.sma_window = self.sma_window
         config.max_action = self.max_action
+        config.min_epsilon = self.min_epsilon
         config.action_cost = self.action_cost
         config.max_seq_len = self.max_seq_len
         config.random_state = self.random_state
@@ -39,6 +44,10 @@ class BasicLFA(EA):
         config.configs_to_consider = self.configs_to_consider
         config.reward_prediction_type = self.reward_prediction_type
         
+    def _decrement_epsilon(self):
+        self.epsilon -= self.epsilon_decay
+        self.epsilon = max(self.epsilon, self.min_epsilon)
+        
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
             original_action = self.rng.integers(self.action_dims)
@@ -47,21 +56,22 @@ class BasicLFA(EA):
             
         transformed_action = self._transform_action(original_action)
         return transformed_action, original_action
-        
+    
     # Feature vector is a one hot encoding of the state and the action
     def _get_features(self, state, action):
-        state_features = np.empty(2*self.state_dims)
+        state_features = np.empty(2 * self.state_dims)
         
-        mutable_state = state[2:6, 2:6]
-        for i, row in enumerate(mutable_state):
-            for j, cell in enumerate(row):
-                index = (i * 4 + j) * 2
-                if cell == 1:
-                    state_features[index] = 1
-                    state_features[index + 1] = 0
-                else:
-                    state_features[index] = 0
-                    state_features[index + 1] = 1
+        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
+        rows, cols = zip(*mutable_cells)
+        mutable_state = state[rows, cols]
+        
+        for i, cell in enumerate(mutable_state):
+            if cell == 1:
+                state_features[2 * i] = 1
+                state_features[2 * i + 1] = 0
+            else:
+                state_features[2 * i] = 0 
+                state_features[2 * i + 1] = 1
                 
         action_features = np.zeros(self.action_dims)
         action_features[action] = 1
@@ -82,89 +92,97 @@ class BasicLFA(EA):
         
         return best_action, max_q_value
     
-    def _update_weights(self, state, action, reward, next_state, done):
+    def _update_weights(self, state, action, reward, next_state, done, losses, episode=None, traditional_update=True):
         features = self._get_features(state, action)
         current_q_value = np.dot(self.weights, features)
-
+        
+        # Use reward estimator to approximate reward for traditional Q-Update 
+        # if traditional_update and self.reward_prediction_type == 'approximate':
+        #     step = torch.FloatTensor([state, action, next_state])
+        #     reward = self.reward_estimator(step)
+            
         _, max_next_q_value = self._get_max_q_value(next_state)
         td_target = reward + (1 - done) * max_next_q_value
         td_error = td_target - current_q_value
 
         self.weights += self.alpha * td_error * features
+        
+        if traditional_update:
+            losses['traditional_td_error'] += abs(td_error)
+        else:
+            losses['commutative_td_error'] += abs(td_error)
+            
+        return losses
 
     def _train(self, problem_instance):
         rewards = []
+        traditional_td_errors = []
+        commutative_td_errors = []
+        step_losses = []
+        trace_losses = []
         
         best_reward = -np.inf
         best_action_seq = None
         
-        for _ in range(self.num_episodes):
+        for episode in range(self.num_episodes):
             done = False
-            num_action = 0
             action_seq = []
             episode_reward = 0
-            state = self._get_state(problem_instance)
+            state, bridges = self._generate_init_state(problem_instance)
+            num_action = len(bridges)
+            losses = {'traditional_td_error': 0, 'commutative_td_error': 0, 'step_loss': 0, 'trace_loss': 0}
             while not done:
                 num_action += 1
                 transformed_action, original_action = self._select_action(state)
                 reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
                 
-                self._update_weights(state, original_action, reward, next_state, done)
+                losses = self._update_weights(state, original_action, reward, next_state, done, losses, episode)
+                
                 state = next_state
                 episode_reward += reward
                 action_seq += [original_action]
                 
-            self.epsilon *= self.epsilon_decay
-            
+            self._decrement_epsilon()
+                        
             rewards.append(episode_reward)
+            traditional_td_errors.append(losses['traditional_td_error'])
+            commutative_td_errors.append(losses['commutative_td_error'])
+            step_losses.append(losses['step_loss'] / (num_action - len(bridges)))
+            trace_losses.append(losses['trace_loss'] / (num_action - len(bridges)))
+            
             avg_rewards = np.mean(rewards[-self.sma_window:])
-            wandb.log({"Average Reward": avg_rewards})
+            avg_traditional_td_errors = np.mean(traditional_td_errors[-self.sma_window:])
+            avg_commutative_td_errors = np.mean(commutative_td_errors[-self.sma_window:])
+            avg_step_loss = np.mean(step_losses[-self.sma_window:])
+            avg_trace_loss = np.mean(trace_losses[-self.sma_window:])
+            
+            wandb.log({
+                "Average Reward": avg_rewards,
+                "Average Traditional TD Error": avg_traditional_td_errors,
+                "Average Commutative TD Error": avg_commutative_td_errors,
+                "Average Step Loss": avg_step_loss, 
+                "Average Trace Loss": avg_trace_loss}, step=episode)
             
             if episode_reward > best_reward:
                 best_action_seq = action_seq
                 best_reward = episode_reward
             
         return best_action_seq, best_reward
-    
-    def _get_final_adaptation(self, problem_instance):
-        best_reward = -np.inf
-        best_action_seq = None
-        
-        for _ in range(25):
-            done = False
-            num_action = 0
-            action_seq = []
-            self.epsilon = 0
-            episode_reward = 0
-            state = np.zeros(self.grid_dims, dtype=int)
-            while not done:
-                num_action += 1
-                transformed_action, original_action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
-                
-                state = next_state
-                action_seq += [original_action]
-                episode_reward += reward
-                
-            if episode_reward > best_reward:
-                best_reward = episode_reward
-                best_action_seq = action_seq
-            
-            return best_action_seq
             
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
+        
+        self._init_problem(problem_instance)
+        self._init_wandb(problem_instance)
+        
+        # Add a dummy action (+1) to terminate the episode
+        self.action_dims = self.state_dims + 1 
+        self.num_features = (2 * self.state_dims) + self.action_dims
         self.weights = np.zeros(self.num_features)
         
-        self._set_max_action(problem_instance)    
-        self._init_wandb(problem_instance) 
         best_adaptation, best_reward = self._train(problem_instance)
         
-        if self.random_state:
-            best_adaptation, best_reward = self._get_final_adaptation(problem_instance)
-        
-        wandb.log({'Adaptation': best_adaptation})
-        wandb.log({'Final Reward': best_reward})
+        wandb.log({'Adaptation': best_adaptation, 'Final Reward': best_reward})
         wandb.finish()
         
         return best_adaptation
@@ -173,43 +191,75 @@ class BasicLFA(EA):
 class CommutativeLFA(BasicLFA):
     def __init__(self, env, rng, random_state, reward_prediction_type):
         super(CommutativeLFA, self).__init__(env, rng, random_state, reward_prediction_type) 
+        self.reward_estimator = RewardEstimator(self.estimator_alpha)
         
-    def _get_state_idx(self, state):
-        tmp_state = state.reshape(-1)
-        binary_str = "".join(str(cell) for cell in reversed(tmp_state))
-        state_idx = int(binary_str, 2)
+    def _update_estimator(self, traces, r_0, r_1):
+        traces = torch.FloatTensor(traces)
+        r_0 = torch.FloatTensor([r_0])
+        r_1 = torch.FloatTensor([r_1])
         
-        self._get_state(state_idx)
-        return state_idx   
+        r0r1_pred = self.reward_estimator(traces[:2])
+        self.reward_estimator.optim.zero_grad()
+        combined_r0r1 = torch.cat([r_0, r_1], dim=-1).view(-1, 1)
+        step_loss = F.mse_loss(combined_r0r1, r0r1_pred)
+        step_loss.backward(retain_graph=True)
+        self.reward_estimator.optim.step()
+        
+        r2r3_pred = self.reward_estimator(traces[2:])
+        self.reward_estimator.optim.zero_grad()
+        trace_loss_r2 = F.mse_loss(r_0 + r_1, r2r3_pred[0] + r2r3_pred[1].detach())
+        trace_loss_r3 = F.mse_loss(r_0 + r_1, r2r3_pred[0].detach() + r2r3_pred[1])
+        combined_loss = trace_loss_r2 + trace_loss_r3
+        combined_loss.backward()
+        self.reward_estimator.optim.step()
+        
+        return traces[3], step_loss.item(), trace_loss_r2.item()
     
-    def _get_state(self, state_idx):
-        binary_str = format(state_idx, f'0{self.grid_dims[0] * self.grid_dims[1]}b')
-        state = np.zeros(self.grid_dims, dtype=int)
-        for i, bit in enumerate(reversed(binary_str)):
-            row = i // self.num_cols
-            col = i % self.num_cols
-            state[row, col] = int(bit)  
-        return state
-    
-    def _update_weights(self, state, action, reward, next_state, done, num_action):
-        super()._update_weights(state, action, reward, next_state, done, num_action)
+    def _update_weights(self, state, action, reward, next_state, done, losses, episode):
+        losses = super()._update_weights(state, action, reward, next_state, done, losses, episode)
         
         state_idx = self._get_state_idx(state)
         self.ptr_lst[(state_idx, action)] = (reward, next_state)
         
         if self.previous_sample is None:
-            self.previous_sample = (state_idx, action, reward)
+            self.previous_sample = (state, action, reward)
         else:
-            prev_state_idx, prev_action, prev_reward = self.previous_sample
-       
-            if (prev_state_idx, action) in self.ptr_lst:
-                r_2, s_2 = self.ptr_lst[(prev_state_idx, action)]
-                r_3 = prev_reward + reward - r_2
-                
-                super()._update_weights(s_2, prev_action, r_3, next_state, done)
+            s, a, r_0 = self.previous_sample
+
+            s_1 = state
+            b = action
+            r_1 = reward
+            s_prime = next_state
             
-            self.previous_sample = (state_idx, action, reward)
-            self.ptr_lst[(state_idx, action)] = (reward, next_state)
+            s_2 = None
+            r_2 = None
+            r3_pred = None
+            
+            s_idx = self._get_state_idx(s)
+            if 'lookup' in self.reward_prediction_type:
+                if (s_idx, b) in self.ptr_lst:
+                    r_2, s_2 = self.ptr_lst[(s_idx, b)]      
+                    r3_pred = r_0 + r_1 - r_2
+            else:
+                transformed_action = self._transform_action(b)
+                s_2 = self._get_next_state(s, transformed_action)
+                
+                s_1_idx = self._get_state_idx(s_1)
+                s_2_idx = self._get_state_idx(s_2)
+                s_prime_idx = self._get_state_idx(s_prime)
+
+                traces = np.array([[s_idx, a, s_1_idx], [s_1_idx, b, s_prime_idx], [s_idx, b, s_2_idx], [s_2_idx, a, s_prime_idx]])
+                
+                r3_step, step_loss, trace_loss = self._update_estimator(traces, r_0, r_1)
+                r3_pred = self.reward_estimator(r3_step).item()
+                
+                losses['step_loss'] += step_loss
+                losses['trace_loss'] += trace_loss
+                
+            if r3_pred is not None:
+                losses = super()._update_weights(s_2, a, r3_pred, s_prime, done, losses, episode, traditional_update=False)      
+
+            self.previous_sample = (state, action, reward)
     
         if done:
             self.previous_sample = None
