@@ -1,4 +1,5 @@
 import math
+import copy
 import wandb
 import torch
 import random
@@ -17,9 +18,11 @@ class BasicLFA(EA):
         self.random_state = random_state
         
         self.weights = None
-        # Add a dummy action (+1) to terminate the episode
+        self.num_features = (2 * self.state_dims) + self.action_dims
         
+        self.gamma = 0.9
         self.alpha = 0.001
+        self.step_size = 100
         self.max_seq_len = 7
         self.epsilon_start = 1
         self.sma_window = 1000
@@ -27,6 +30,7 @@ class BasicLFA(EA):
         self.num_episodes = 10000
         self.estimator_alpha = 0.003
         self.reward_prediction_type = reward_prediction_type
+        self.epsilon_decay = 0.00005 if self.random_state else 0.00001
 
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -172,12 +176,9 @@ class BasicLFA(EA):
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
         
-        self._init_problem(problem_instance)
+        self._init_mapping(problem_instance)
         self._init_wandb(problem_instance)
         
-        # Add a dummy action (+1) to terminate the episode
-        self.action_dims = self.state_dims + 1 
-        self.num_features = (2 * self.state_dims) + self.action_dims
         self.weights = np.zeros(self.num_features)
         
         best_adaptation, best_reward = self._train(problem_instance)
@@ -191,7 +192,6 @@ class BasicLFA(EA):
 class CommutativeLFA(BasicLFA):
     def __init__(self, env, rng, random_state, reward_prediction_type):
         super(CommutativeLFA, self).__init__(env, rng, random_state, reward_prediction_type) 
-        self.reward_estimator = RewardEstimator(self.estimator_alpha)
         
     def _update_estimator(self, traces, r_0, r_1):
         traces = torch.FloatTensor(traces)
@@ -267,6 +267,9 @@ class CommutativeLFA(BasicLFA):
     def _generate_adaptations(self, problem_instance):
         self.ptr_lst = {}
         self.previous_sample = None
+
+        self.reward_estimator = RewardEstimator(self.estimator_alpha, self.step_size, self.gamma)
+        self.target_reward_estimator = copy.deepcopy(self.reward_estimator)     
         
         return super()._generate_adaptations(problem_instance)
     

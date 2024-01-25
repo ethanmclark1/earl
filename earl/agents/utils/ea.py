@@ -17,6 +17,11 @@ class EA:
 
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
+        self.max_action = 14
+        self.state_dims = 16
+        # Add a dummy action (+1) to terminate the episode
+        self.action_dims = self.state_dims + 1        
+
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
     
@@ -73,31 +78,21 @@ class EA:
             traces = np.load(f)
         return traces
     
-    def _init_problem(self, problem_instance):
+    # Initialize action mapping for a given problem instance
+    def _init_mapping(self, problem_instance):
         approach = self.__class__.__name__
         if problem_instance == 'minefield':
-            self.state_dims = 12
-            self.max_action = 10
             self.mapping = {0: 10, 1: 13, 2: 17, 3: 20,
-                            4: 22, 5: 26, 6: 37, 7: 41,
-                            8: 43, 9: 46, 10: 50, 11: 53}
-            if 'QTable' in approach:
-                self.epsilon_decay = 0.00015 if self.random_state else 0.000004
-            elif 'LFA' in approach:
-                self.epsilon_decay = 0.0008 if self.random_state else 0.00001
-            
+                            4: 22, 5: 26, 6: 27, 7: 28,
+                            8: 35, 9: 36, 10: 37, 11: 41,
+                            12: 43, 13: 46, 14: 50, 15: 53
+                            }            
         elif problem_instance == 'neighbors':
-            self.state_dims = 16
-            self.max_action = 14
             self.mapping = {0: 17, 1: 19, 2: 20, 3: 22,
                             4: 26, 5: 27, 6: 28, 7: 29,
                             8: 34, 9: 35, 10: 36, 11: 37,
                             12: 41, 13: 43, 14: 44, 15: 46
                             }
-            if 'QTable' in approach:
-                self.epsilon_decay = 0.00008 if self.random_state else 0.00001
-            elif 'LFA' in approach:
-                self.epsilon_decay = 0.0005 if self.random_state else 0.00001
     
     def _generate_traces(self, problem_instance):
         traces = np.zeros((self.offline_episodes * self.max_action, 5))
@@ -227,7 +222,7 @@ class EA:
             utilities += [-utility]
 
         avg_utility = np.mean(utilities)
-        return 3*avg_utility
+        return avg_utility
     
     def _get_next_state(self, state, action):
         next_state = copy.deepcopy(state)
