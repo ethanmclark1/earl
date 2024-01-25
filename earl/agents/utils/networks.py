@@ -4,19 +4,22 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+
 torch.manual_seed(42)
 
 
 class RewardEstimator(nn.Module):
-    def __init__(self, lr):
+    def __init__(self, lr, step_size, gamma):
         super(RewardEstimator, self).__init__()
         input_dims = 3
         output_dims = 1
-        self.fc1 = nn.Linear(in_features=input_dims, out_features=8)
-        self.fc2 = nn.Linear(in_features=8, out_features=4)
-        self.fc3 = nn.Linear(in_features=4, out_features=output_dims)
+        self.fc1 = nn.Linear(in_features=input_dims, out_features=16)
+        self.fc2 = nn.Linear(in_features=16, out_features=8)
+        self.fc3 = nn.Linear(in_features=8, out_features=output_dims)
         
         self.optim = torch.optim.Adam(self.parameters(), lr=lr)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=step_size, gamma=gamma)
         
     def forward(self, x):
         x = F.relu(self.fc1(x))

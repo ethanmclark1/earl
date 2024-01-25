@@ -1,4 +1,5 @@
 import math
+import copy
 import wandb
 import torch
 import itertools
@@ -14,25 +15,32 @@ class BasicQTable(EA):
         super(BasicQTable, self).__init__(env, rng, random_state)
                 
         self.q_table = None
+        self.reward_estimator = None
+        self.nS = 2 ** self.state_dims
 
+        self.gamma = 0.95
         self.alpha = 0.0005
+        self.step_size = 100
         self.max_seq_len = 7
         self.epsilon_start = 1
         self.sma_window = 2500
-        self.min_epsilon = 0.10
+        self.min_epsilon = 0.05
         self.eval_episodes = 500
-        self.num_episodes = 200000
+        self.num_episodes = 300000
         self.is_online = is_online
-        self.estimator_tau = 0.01
+        self.estimator_tau = 0.05
         self.sma_window_eval = 500
-        self.estimator_alpha = 0.008
-        self.offline_episodes = 200000
+        self.estimator_alpha = 0.01
+        self.offline_episodes = 400000
         self.reward_prediction_type = reward_prediction_type
+        self.epsilon_decay = 0.00005 if self.random_state else 0.00001
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
+        config.gamma = self.gamma
         config.is_online = self.is_online
+        config.step_size = self.step_size
         config.sma_window = self.sma_window
         config.max_action = self.max_action
         config.action_cost = self.action_cost
@@ -46,6 +54,7 @@ class BasicQTable(EA):
         config.estimator_tau = self.estimator_tau
         config.estimator_alpha = self.estimator_alpha
         config.sma_window_eval = self.sma_window_eval
+        config.reward_estimator = self.reward_estimator 
         config.offline_episodes = self.offline_episodes
         config.action_success_rate = self.action_success_rate
         config.configs_to_consider = self.configs_to_consider
@@ -197,13 +206,10 @@ class BasicQTable(EA):
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
         
-        self._init_problem(problem_instance)
+        self._init_mapping(problem_instance)
         self._init_wandb(problem_instance)
         
-        nS = 2 ** self.state_dims
-        # Add a dummy action (+1) to terminate the episode
-        self.action_dims = self.state_dims + 1        
-        self.q_table = np.zeros((nS, self.action_dims))
+        self.q_table = np.zeros((self.nS, self.action_dims))
         
         if self.is_online:
             best_adaptation, best_reward = self._online_train(problem_instance)
@@ -241,6 +247,8 @@ class CommutativeQTable(BasicQTable):
         combined_loss = trace_loss_r2 + trace_loss_r3
         combined_loss.backward()
         self.reward_estimator.optim.step()
+        
+        self.reward_estimator.scheduler.step()
         
         for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
             target_param.data.copy_(self.estimator_tau * local_param.data + (1.0 - self.estimator_tau) * target_param.data)
@@ -308,8 +316,8 @@ class CommutativeQTable(BasicQTable):
         self.ptr_lst = {}
         self.previous_sample = None 
         
-        self.reward_estimator = RewardEstimator(self.estimator_alpha)
-        self.target_reward_estimator = RewardEstimator(self.estimator_alpha)       
+        self.reward_estimator = RewardEstimator(self.estimator_alpha, self.step_size, self.gamma)
+        self.target_reward_estimator = copy.deepcopy(self.reward_estimator)     
         
         return super()._generate_adaptations(problem_instance)
     
