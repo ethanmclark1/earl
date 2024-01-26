@@ -21,9 +21,9 @@ class EARL:
         self.rng = np.random.default_rng(seed=random_seed)
         
         # Q-Learning
-        self.basic_q_table = BasicQTable(self.env, self.rng, is_online, random_state)
+        self.basic_q_table = BasicQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
         self.commutative_q_table = CommutativeQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
-        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng, is_online, random_state)
+        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
         
         # Function Approximations
         self.basic_lfa = BasicLFA(self.env, self.rng, random_state)

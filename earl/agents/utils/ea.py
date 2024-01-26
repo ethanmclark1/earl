@@ -26,9 +26,9 @@ class EA:
         self.grid_dims = env.unwrapped.desc.shape
     
     def _init_hyperparams(self):
-        self.action_cost = 0.05
+        self.action_cost = 0.15
         self.percent_holes = 0.75
-        self.configs_to_consider = 25
+        self.configs_to_consider = 30
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
@@ -222,7 +222,7 @@ class EA:
             utilities += [-utility]
 
         avg_utility = np.mean(utilities)
-        return avg_utility
+        return 3*avg_utility
     
     def _get_next_state(self, state, action):
         next_state = copy.deepcopy(state)
