@@ -25,7 +25,7 @@ class BasicQTable(EA):
         self.max_seq_len = 7
         self.epsilon_start = 1
         self.sma_window = 2500
-        self.min_epsilon = 0.05
+        self.min_epsilon = 0.1
         self.eval_episodes = 500
         self.num_episodes = 300000
         self.is_online = is_online
@@ -83,19 +83,19 @@ class BasicQTable(EA):
         
         if traditional_update:
             r0_pred = self.reward_estimator(traces)
-            step_loss = F.mse_loss(rewards, r0_pred)
+            step_loss = F.mse_loss(r0_pred, rewards)
             step_loss.backward()
         else:
             r0r1_pred = self.reward_estimator(traces[:2])
-            step_loss = F.mse_loss(rewards, r0r1_pred)
+            step_loss = F.mse_loss(r0r1_pred, rewards)
             step_loss.backward(retain_graph=True)
             self.reward_estimator.optim.step()
         
             combined_r0r1 = torch.sum(rewards).unsqueeze(-1)
             r2r3_pred = self.reward_estimator(traces[2:])
             self.reward_estimator.optim.zero_grad()
-            trace_loss_r2 = F.mse_loss(combined_r0r1, r2r3_pred[0] + r2r3_pred[1].detach())
-            trace_loss_r3 = F.mse_loss(combined_r0r1, r2r3_pred[0].detach() + r2r3_pred[1])
+            trace_loss_r2 = F.mse_loss(r2r3_pred[0] + r2r3_pred[1].detach(), combined_r0r1)
+            trace_loss_r3 = F.mse_loss(r2r3_pred[0].detach() + r2r3_pred[1], combined_r0r1)
             combined_loss = trace_loss_r2 + trace_loss_r3
             combined_loss.backward()
             
@@ -254,7 +254,7 @@ class BasicQTable(EA):
         self.epsilon = self.epsilon_start
         
         self._init_mapping(problem_instance)
-        # self._init_wandb(problem_instance)
+        self._init_wandb(problem_instance)
         
         self.q_table = np.zeros((self.nS, self.action_dims))
         self.reward_estimator = RewardEstimator(self.estimator_alpha, self.step_size, self.gamma)
