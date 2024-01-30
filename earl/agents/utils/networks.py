@@ -10,7 +10,7 @@ torch.manual_seed(42)
 
 
 class RewardEstimator(nn.Module):
-    def __init__(self, lr, step_size, gamma):
+    def __init__(self, lr, reward_range):
         super(RewardEstimator, self).__init__()
         input_dims = 3
         output_dims = 1
@@ -18,13 +18,14 @@ class RewardEstimator(nn.Module):
         self.fc2 = nn.Linear(in_features=16, out_features=8)
         self.fc3 = nn.Linear(in_features=8, out_features=output_dims)
         
+        self.reward_range = reward_range
         self.optim = torch.optim.Adam(self.parameters(), lr=lr)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=step_size, gamma=gamma)
         
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        x = torch.tanh(self.fc3(x)) * self.reward_range
+        return x
     
     
 # Permutation Invariant Neural Network 

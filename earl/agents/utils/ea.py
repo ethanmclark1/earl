@@ -26,7 +26,7 @@ class EA:
         self.grid_dims = env.unwrapped.desc.shape
     
     def _init_hyperparams(self):
-        self.action_cost = 0.15
+        self.action_cost = 0.10
         self.percent_holes = 0.75
         self.configs_to_consider = 30
         self.action_success_rate = 0.75
@@ -80,7 +80,6 @@ class EA:
     
     # Initialize action mapping for a given problem instance
     def _init_mapping(self, problem_instance):
-        approach = self.__class__.__name__
         if problem_instance == 'minefield':
             self.mapping = {0: 10, 1: 13, 2: 17, 3: 20,
                             4: 22, 5: 26, 6: 27, 7: 28,
