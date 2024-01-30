@@ -9,7 +9,7 @@ from agents.attention_neuron import AttentionNeuron
 
 
 class EARL:
-    def __init__(self, is_online, random_state, reward_prediction_type):
+    def __init__(self, random_state, reward_prediction_type):
         self.env = gym.make(
             id='FrozenLake-v1', 
             map_name='8x8', 
@@ -21,9 +21,9 @@ class EARL:
         self.rng = np.random.default_rng(seed=random_seed)
         
         # Q-Learning
-        self.basic_q_table = BasicQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
-        self.commutative_q_table = CommutativeQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
-        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng, is_online, random_state, reward_prediction_type)
+        self.basic_q_table = BasicQTable(self.env, self.rng, random_state, reward_prediction_type)
+        self.commutative_q_table = CommutativeQTable(self.env, self.rng, random_state, reward_prediction_type)
+        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng, random_state, reward_prediction_type)
         
         # Function Approximations
         self.basic_lfa = BasicLFA(self.env, self.rng, random_state)
@@ -39,7 +39,7 @@ class EARL:
     
 
 if __name__ == '__main__':
-    is_online, approach, problem_instance, random_state, reward_prediction_type = get_arguments()
-    earl = EARL(is_online, random_state, reward_prediction_type)    
+    approach, problem_instance, random_state, reward_prediction_type = get_arguments()
+    earl = EARL(random_state, reward_prediction_type)    
     
     modification_set = earl.retrieve_modifications(approach, problem_instance)
