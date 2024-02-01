@@ -32,11 +32,11 @@ class ReplayBuffer:
 class HallucinatedReplayBuffer(ReplayBuffer):
     def __init__(self, buffer_size, rng):
         super().__init__(buffer_size, rng)
-        self.transition = torch.zeros((buffer_size,1,2,3), dtype=torch.float)
+        self.transition = torch.zeros((buffer_size,2,3), dtype=torch.float)
         self.reward = torch.zeros(buffer_size, 2, dtype=torch.float)
         
-    def add(self, state, action, reward, next_state, prev_state, prev_action, prev_reward):
-        self.transition[self.count] = torch.tensor(((prev_state, action, state), (state, prev_action, next_state)))   
+    def add(self, prev_state, prev_action, prev_reward, state, action, reward, next_state):
+        self.transition[self.count] = torch.tensor(((prev_state, prev_action, state), (state, action, next_state)))   
         self.reward[self.count] = torch.tensor((prev_reward, reward))
         self.is_initialized[self.count] = True
 
