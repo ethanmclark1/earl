@@ -1,6 +1,6 @@
 import torch
 
-class ReplayBuffer:
+class RewardBuffer:
     def __init__(self, buffer_size, rng):       
         self.transition = torch.zeros(buffer_size, 3, dtype=torch.float) 
         self.reward = torch.zeros(buffer_size, dtype=torch.float)
@@ -29,14 +29,14 @@ class ReplayBuffer:
         return idxs
     
 
-class HallucinatedReplayBuffer(ReplayBuffer):
+class CommutativeRewardBuffer(RewardBuffer):
     def __init__(self, buffer_size, rng):
         super().__init__(buffer_size, rng)
         self.transition = torch.zeros((buffer_size,2,3), dtype=torch.float)
         self.reward = torch.zeros(buffer_size, 2, dtype=torch.float)
         
-    def add(self, prev_state, prev_action, prev_reward, state, action, reward, next_state):
-        self.transition[self.count] = torch.tensor(((prev_state, prev_action, state), (state, action, next_state)))   
+    def add(self, prev_state, action, prev_reward, commutative_state, prev_action, reward, next_state):
+        self.transition[self.count] = torch.tensor(((prev_state, action, commutative_state), (commutative_state, prev_action, next_state)))   
         self.reward[self.count] = torch.tensor((prev_reward, reward))
         self.is_initialized[self.count] = True
 

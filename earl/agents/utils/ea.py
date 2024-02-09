@@ -17,7 +17,7 @@ class EA:
 
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
-        self.max_action = 14
+        self.max_action = 10
         self.state_dims = 16
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = self.state_dims + 1        
@@ -28,7 +28,7 @@ class EA:
     def _init_hyperparams(self):
         self.action_cost = 0.10
         self.percent_holes = 0.75
-        self.configs_to_consider = 30
+        self.configs_to_consider = 25
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
@@ -60,76 +60,37 @@ class EA:
         config = wandb.config
         return config
     
-    def _save_traces(self, problem_instance, traces):
-        directory = f'earl/agents/utils/data/'
-        filename = f'{problem_instance}_random_state_{self.random_state}.npy'
-        file_path = os.path.join(directory, filename)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            
-        with open(file_path, 'wb') as file:
-            np.save(file, traces)
-            
-    def _load_traces(self, problem_instance):
-        directory = f'earl/agents/utils/data/'
-        filename = f'{problem_instance}_random_state_{self.random_state}.npy'
-        file_path = os.path.join(directory, filename)
-        with open(file_path, 'rb') as f:
-            traces = np.load(f)
-        return traces
-    
     # Initialize action mapping for a given problem instance
     def _init_mapping(self, problem_instance):
-        if problem_instance == 'minefield':
-            self.mapping = {0: 10, 1: 13, 2: 17, 3: 20,
-                            4: 22, 5: 26, 6: 27, 7: 28,
-                            8: 35, 9: 36, 10: 37, 11: 41,
-                            12: 43, 13: 46, 14: 50, 15: 53
+        if problem_instance == 'citycenter':
+            self.mapping = {0: 2, 1: 6, 2: 12, 3: 17,
+                            4: 18, 5: 25, 6: 30, 7: 38,
+                            8: 42, 9: 44, 10: 46, 11: 49, 
+                            12: 50, 13: 52, 14: 62, 15: 63
                             }            
-        elif problem_instance == 'neighbors':
-            self.mapping = {0: 17, 1: 19, 2: 20, 3: 22,
-                            4: 26, 5: 27, 6: 28, 7: 29,
-                            8: 34, 9: 35, 10: 36, 11: 37,
-                            12: 41, 13: 43, 14: 44, 15: 46
+        elif problem_instance == 'pathway':
+            self.mapping = {0: 9, 1: 22, 2: 25, 3: 26, 
+                            4: 27, 5: 28, 6: 29, 7: 30, 
+                            8: 36, 9: 40, 10: 41, 11: 42, 
+                            12: 46, 13: 48, 14: 52, 15: 60
                             }
-    
-    def _generate_traces(self, problem_instance):
-        traces = np.zeros((self.offline_episodes * self.max_action, 5))
-        
-        for episode in range(self.offline_episodes):
-            done = False
-            state, bridges = self._generate_init_state(problem_instance)
-            num_action = len(bridges)
-            while not done:
-                num_action += 1
-                transformed_action, original_action = self._select_action(problem_instance, state)
-                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
-                
-                state_idx = self._get_state_idx(state)
-                next_state_idx = self._get_state_idx(next_state)
-                traces[episode * self.max_action + num_action - 1] = np.array((state_idx, original_action, reward, next_state_idx, done))
-                            
-                state = next_state
-        
-        return traces
     
     def _generate_fixed_state(self, problem_instance):
         return np.zeros(self.grid_dims, dtype=int), []
     
     # Generate initial state for a given problem instance
     def _generate_random_state(self, problem_instance):
-        houses = problems.problems[problem_instance]['houses']
+        starts = problems.problems[problem_instance]['starts']
+        goals = problems.problems[problem_instance]['goals']
+        holes = problems.problems[problem_instance]['holes']
+        
         num_bridges = self.rng.choice(self.max_action)
-        bridges = self.rng.choice(self.action_dims-1, size=num_bridges, replace=True)
+        bridges = self.rng.choice(holes, size=num_bridges, replace=True)
         state = np.zeros(self.grid_dims, dtype=int)
         
         for bridge in bridges:
-            if hasattr(self, '_transform_action'):
-                bridge = self._transform_action(bridge)
-            row = bridge // self.num_cols
-            col = bridge % self.num_cols
-            bridge = (row, col)
-            if bridge in houses:
+            bridge = tuple(bridge)
+            if bridge in starts or bridge in goals:
                 continue
             state[bridge] = 1
             
@@ -202,11 +163,6 @@ class EA:
             tmp_desc = copy.deepcopy(desc)
             tmp_graph = copy.deepcopy(graph)
             start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.percent_holes)
-            
-            # Bridges cannot cover start or goal cells 
-            if tmp_desc[start] == 1 or tmp_desc[goal] == 1:
-                utilities += [-self.num_cols*2]
-                continue
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
             #  Place obstacle in cell only if bridge is not already there
