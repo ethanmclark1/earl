@@ -16,8 +16,8 @@ def get_arguments():
     parser.add_argument(
         '--problem_instance', 
         type=str, 
-        default='neighbors', 
-        choices=['minefield', 'neighbors'],
+        default='citycenter', 
+        choices=['citycenter', 'pathway'],
         help='Which problem to attempt {default_val: %(default)s, choices: [%(choices)s]}'
         )
             
