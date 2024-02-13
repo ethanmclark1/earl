@@ -8,12 +8,12 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, rng, random_state):
+    def __init__(self, env, random_state):
         self._init_hyperparams()
         
         self.env = env
-        self.rng = rng
         self.random_state = random_state
+        self.rng = np.random.default_rng(seed=42)
 
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
@@ -28,7 +28,7 @@ class EA:
     def _init_hyperparams(self):
         self.action_cost = 0.10
         self.percent_holes = 0.75
-        self.configs_to_consider = 25
+        self.configs_to_consider = 5
         self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
@@ -199,6 +199,7 @@ class EA:
         
         util_s = self._calc_utility(problem_instance, state)
         if not done:
+            # Check if state and next state are equal
             if not np.array_equal(state, next_state):
                 util_s_prime = self._calc_utility(problem_instance, next_state)
                 reward = util_s_prime - util_s
