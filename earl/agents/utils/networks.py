@@ -4,27 +4,26 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
-torch.manual_seed(42)
+from torch.optim import Adam
+
+torch.manual_seed(seed=42)
 
 
 class RewardEstimator(nn.Module):
-    def __init__(self, lr, step_size, gamma, dropout_rate):
+    def __init__(self, input_dims, lr, step_size, gamma, dropout_rate):
         super(RewardEstimator, self).__init__()
-        input_dims = 3
-        output_dims = 1
+        self.fc1 = nn.Linear(in_features=input_dims, out_features=64)   
+        self.ln1 = nn.LayerNorm(64)
         
-        self.fc1 = nn.Linear(in_features=input_dims, out_features=16)   
-        self.ln1 = nn.LayerNorm(16)     
+        self.fc2 = nn.Linear(in_features=64, out_features=32)     
+        self.ln2 = nn.LayerNorm(32)
         
-        self.fc2 = nn.Linear(in_features=16, out_features=8)
-        self.ln2 = nn.LayerNorm(8)
+        self.fc3 = nn.Linear(in_features=32, out_features=1)
         
-        self.fc3 = nn.Linear(in_features=8, out_features=output_dims)
-
         self.dropout = nn.Dropout(p=dropout_rate)
-        self.optim = torch.optim.Adam(self.parameters(), lr=lr)
+        self.optim = Adam(self.parameters(), lr=lr)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=step_size, gamma=gamma)
-    
+        
     def forward(self, x):
         x = F.relu(self.ln1(self.fc1(x)))
         x = self.dropout(x)
