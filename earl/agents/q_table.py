@@ -32,6 +32,8 @@ class BasicQTable(EA):
         self.nS = 2 ** self.state_dims
         
     def _init_hyperparams(self):
+        self.warmup_episodes = 20000
+        
         # Reward Estimator
         self.gamma = 0.25
         self.batch_size = 128
@@ -48,7 +50,7 @@ class BasicQTable(EA):
         self.sma_window = 5000
         self.min_epsilon = 0.10
         self.num_episodes = 300000
-        self.epsilon_decay = 0.00005 if self.random_state else 0.00001
+        self.epsilon_decay = 0.00001 if self.random_state else 0.00001
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -68,6 +70,7 @@ class BasicQTable(EA):
         config.epsilon_decay = self.epsilon_decay
         config.estimator_tau = self.estimator_tau
         config.percent_holes = self.percent_holes
+        config.warmup_episodes = self.warmup_episodes
         config.estimator_alpha = self.estimator_alpha
         config.reward_estimator = self.reward_estimator 
         config.model_save_interval = self.model_save_interval
@@ -86,7 +89,7 @@ class BasicQTable(EA):
     
     # Only decrement epsilon after reward estimator has been sufficiently trained
     def _decrement_epsilon(self, episode):
-        if episode > 30000:
+        if episode > self.warmup_episodes:
             self.epsilon -= self.epsilon_decay
             self.epsilon = max(self.epsilon, self.min_epsilon)
             
@@ -188,7 +191,6 @@ class BasicQTable(EA):
         
         q_table_ckpt = None
         best_avg_rewards = -np.inf
-        warmup_episodes = 15000
         
         for episode in range(self.num_episodes):
             done = False
