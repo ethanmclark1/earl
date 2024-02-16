@@ -8,28 +8,26 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, random_state):
-        self._init_hyperparams()
-        
+    def __init__(self, env, random_state, rng):
         self.env = env
         self.random_state = random_state
-        self.rng = np.random.default_rng(seed=42)
+        self.rng = rng
 
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
         self.max_action = 10
         self.state_dims = 16
+        self.action_cost = 0.02
         # Add a dummy action (+1) to terminate the episode
-        self.action_dims = self.state_dims + 1        
-
+        self.action_dims = self.state_dims + 1    
+        
+        # Stochasticity Parameters
+        self.percent_holes = 0.75
+        self.configs_to_consider = 1
+        self.action_success_rate = 0.75
+        
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
-    
-    def _init_hyperparams(self):
-        self.action_cost = 0.10
-        self.percent_holes = 0.75
-        self.configs_to_consider = 5
-        self.action_success_rate = 0.75
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
@@ -65,14 +63,14 @@ class EA:
         if problem_instance == 'citycenter':
             self.mapping = {0: 2, 1: 6, 2: 12, 3: 17,
                             4: 18, 5: 25, 6: 30, 7: 38,
-                            8: 42, 9: 44, 10: 46, 11: 49, 
+                            8: 42, 9: 43, 10: 46, 11: 49, 
                             12: 50, 13: 52, 14: 62, 15: 63
                             }            
         elif problem_instance == 'pathway':
-            self.mapping = {0: 9, 1: 22, 2: 25, 3: 26, 
-                            4: 27, 5: 28, 6: 29, 7: 30, 
-                            8: 36, 9: 40, 10: 41, 11: 42, 
-                            12: 46, 13: 48, 14: 52, 15: 60
+            self.mapping = {0: 9, 1: 12, 2: 22, 3: 25, 
+                            4: 26, 5: 27, 6: 28, 7: 29, 
+                            8: 30, 9: 38, 10: 40, 11: 42, 
+                            12: 46, 13: 48, 14: 49, 15: 52
                             }
     
     def _generate_fixed_state(self, problem_instance):
@@ -96,10 +94,14 @@ class EA:
             
         return state, bridges
     
-    def _get_state_idx(self, state):
+    def _get_mutable_state(self, state):
         mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
         rows, cols = zip(*mutable_cells)
         mutable_state = state[rows, cols]
+        return mutable_state
+        
+    def _get_state_idx(self, state):
+        mutable_state = self._get_mutable_state(state)
         binary_str = "".join(str(cell) for cell in reversed(mutable_state))
         state_idx = int(binary_str, 2)
         return state_idx   
@@ -153,6 +155,7 @@ class EA:
         desc = copy.deepcopy(state).reshape(self.grid_dims)
         row_idx, col_idx = np.where(desc == 1)
         
+        # Set up the bridges
         bridges = set(zip(row_idx, col_idx))
         for bridge in bridges:
             bridge = tuple(bridge)
@@ -177,15 +180,15 @@ class EA:
             utilities += [-utility]
 
         avg_utility = np.mean(utilities)
-        return 3*avg_utility
+        return avg_utility
     
     def _get_next_state(self, state, action):
+        transformed_action = self._transform_action(action)
         next_state = copy.deepcopy(state)
         terminating_action = self.action_dims - 1
         # Add stochasticity to actions
-        # **Action must already be transformed**
-        if action != terminating_action and self.action_success_rate > self.rng.random():
-            next_state = self._place_bridge(state, action)
+        if transformed_action != terminating_action and self.action_success_rate >= self.rng.random():
+            next_state = self._place_bridge(state, transformed_action)
             
         return next_state
     
@@ -197,16 +200,13 @@ class EA:
         done = action == terminating_action
         timeout = num_action == self.max_action
         
-        util_s = self._calc_utility(problem_instance, state)
         if not done:
             # Check if state and next state are equal
             if not np.array_equal(state, next_state):
+                util_s = self._calc_utility(problem_instance, state)
                 util_s_prime = self._calc_utility(problem_instance, next_state)
                 reward = util_s_prime - util_s
-            # If state == next state then u(s') - u(s) = 0
             reward -= self.action_cost * num_action
-        elif done and num_action == 1:
-            reward = util_s
         
         return reward, (done or timeout)
         
@@ -230,17 +230,6 @@ class EA:
         
         print(f'{approach} adaptations for {problem_instance.capitalize()} problem instance:\n{adaptations}\n')
         return adaptations
-    
-    def _get_traces(self, problem_instance):
-        try:
-            traces = self._load_traces(problem_instance)
-        except FileNotFoundError:
-            print(f'No stored traces for {problem_instance.capitalize()} problem instance.')
-            print('Generating new traces...')
-            traces = self._generate_traces(problem_instance)
-            self._save_traces(problem_instance, traces)
-        
-        return traces
     
     # Apply adaptations to task environment
     def get_adapted_env(self, desc, adaptations):
