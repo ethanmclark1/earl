@@ -15,8 +15,9 @@ torch.manual_seed(seed=42)
 
 
 class BasicQTable(EA):
-    def __init__(self, env, random_state, reward_prediction_type):
-        super(BasicQTable, self).__init__(env, random_state)
+    def __init__(self, env, random_state, reward_prediction_type, rng):
+        super(BasicQTable, self).__init__(env, random_state, rng)
+        self._init_hyperparams()
         
         self.name = self.__class__.__name__
         self.output_dir = f'earl/agents/history/estimator/{self.name.lower()}'
@@ -26,28 +27,28 @@ class BasicQTable(EA):
         self.target_reward_estimator = None
         self.reward_buffer = None
         self.commutative_reward_buffer = None
+        self.reward_prediction_type = reward_prediction_type
         
         self.nS = 2 ** self.state_dims
         
+    def _init_hyperparams(self):
         # Reward Estimator
         self.gamma = 0.25
         self.batch_size = 128
         self.step_size = 5000
-        self.memory_size = 128
-        self.dropout_rate = 0.3
-        self.estimator_tau = 0.01
-        self.estimator_alpha = 0.001
+        self.dropout_rate = 0.2
+        self.estimator_tau = 0.008
+        self.estimator_alpha = 0.003
         self.model_save_interval = 25000
 
         # Q-Table
         self.alpha = 0.0005
         self.max_seq_len = 7
         self.epsilon_start = 1
-        self.sma_window = 2500
-        self.min_epsilon = 0.05
+        self.sma_window = 5000
+        self.min_epsilon = 0.10
         self.num_episodes = 300000
-        self.reward_prediction_type = reward_prediction_type
-        self.epsilon_decay = 0.000095 if self.random_state else 0.00001
+        self.epsilon_decay = 0.00005 if self.random_state else 0.00001
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
@@ -57,9 +58,9 @@ class BasicQTable(EA):
         config.batch_size = self.batch_size
         config.sma_window = self.sma_window
         config.max_action = self.max_action
+        config.batch_size = self.batch_size
         config.action_cost = self.action_cost
         config.min_epsilon = self.min_epsilon
-        config.memory_size = self.memory_size
         config.max_seq_len = self.max_seq_len
         config.random_state = self.random_state
         config.num_episodes = self.num_episodes
@@ -74,7 +75,7 @@ class BasicQTable(EA):
         config.configs_to_consider = self.configs_to_consider
         config.reward_prediction_type = self.reward_prediction_type
         
-    def _save_checkpoint(self, problem_instance, episode):
+    def _save_estimator(self, problem_instance, episode):
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
         
@@ -84,58 +85,64 @@ class BasicQTable(EA):
             torch.save(self.reward_estimator.state_dict(), file_path)
     
     # Only decrement epsilon after reward estimator has been sufficiently trained
-    def _decrement_epsilon(self):
-        self.epsilon -= self.epsilon_decay
-        self.epsilon = max(self.epsilon, self.min_epsilon)
+    def _decrement_epsilon(self, episode):
+        if episode > 30000:
+            self.epsilon -= self.epsilon_decay
+            self.epsilon = max(self.epsilon, self.min_epsilon)
             
     def _select_action(self, state):
         if self.rng.random() < self.epsilon:
-            original_action = self.rng.integers(self.action_dims)
+            action = self.rng.integers(self.action_dims)
         else:
             state_idx = self._get_state_idx(state)
-            original_action = self.q_table[state_idx].argmax()
+            action = self.q_table[state_idx].argmax()
             
-        transformed_action = self._transform_action(original_action)
-        return transformed_action, original_action
+        return action
     
     def _add_transition(self, state, action, reward, next_state, prev_state, prev_action, prev_reward):
-        s_1_idx = self._get_state_idx(state)
-        b = action
-        r_1 = reward
-        s_prime_idx = self._get_state_idx(next_state)
+        state_idx = self._get_state_idx(state)
+        next_state_idx = self._get_state_idx(next_state)
         
-        self.reward_buffer.add(s_1_idx, b, s_prime_idx, r_1)
+        state_proxy = self._get_mutable_state(state)
+        next_state_proxy = self._get_mutable_state(next_state)
+        
+        self.reward_buffer.add(state_proxy, action, reward, next_state_proxy)
         
         if prev_state is not None:
-            s_idx = self._get_state_idx(prev_state)
-            a = prev_action
-            r_0 = prev_reward
+            prev_state_idx = self._get_state_idx(prev_state)
+            prev_state_proxy = self._get_mutable_state(prev_state)
             
-            transformed_action = self._transform_action(b)
-            s_2 = self._place_bridge(prev_state, transformed_action)
-            s_2_idx = self._get_state_idx(s_2)
+            action_a_success = prev_state_idx != state_idx
+            action_b_success = state_idx != next_state_idx
             
-            # Both actions are unsuccessful: (s, b) -> s, (s, a) -> s
-            if s_prime_idx == s_idx:
-                self.commutative_reward_buffer.add(s_idx, b, s_idx, a, s_idx, r_0, r_1)
-            # Action b is unsuccessful while action a was successful: (s, b) -> s, (s, a) -> s_1
-            elif s_prime_idx == s_1_idx:
-                self.commutative_reward_buffer.add(s_idx, b, s_idx, a, s_1_idx, r_0, r_1)
-            # Action b is successful while action a was unsuccessful: (s, b) -> s_2, (s_2, a) -> s_2
-            elif s_prime_idx == s_2_idx:
-                self.commutative_reward_buffer.add(s_idx, b, s_2_idx, a, s_2_idx, r_0, r_1)
-            # Both actions are successful: (s, b) -> s_2, (s_2, a) -> s'
+            transformed_action = self._transform_action(action)
+            commutative_state = self._place_bridge(prev_state, transformed_action)
+            commutative_state_proxy = self._get_mutable_state(commutative_state)
+            
+            if action_a_success and action_b_success:            
+                self.commutative_reward_buffer.add(prev_state_proxy, action, prev_reward, commutative_state_proxy, prev_action, reward, next_state_proxy)
+            elif action_a_success:
+                self.commutative_reward_buffer.add(prev_state_proxy, action, prev_reward, prev_state_proxy, prev_action, reward, state_proxy)
+            elif action_b_success:
+                self.commutative_reward_buffer.add(prev_state_proxy, action, prev_reward, commutative_state_proxy, prev_action, reward, commutative_state_proxy)
             else:
-                self.commutative_reward_buffer.add(s_idx, b, s_2_idx, a, s_prime_idx, r_0, r_1)
-                    
+                self.commutative_reward_buffer.add(prev_state_proxy, action, prev_reward, prev_state_proxy, prev_action, reward, prev_state_proxy)
+                                
     def _update_q_table(self, state, action, reward, next_state, done, losses, traditional_update=True):
+        if 'approximate' in self.reward_prediction_type:
+            with torch.no_grad():
+                state_proxy = self._get_mutable_state(state)
+                next_state_proxy = self._get_mutable_state(next_state)
+                
+                state_tensor = torch.as_tensor(state_proxy, dtype=torch.float)
+                action_tensor = torch.as_tensor([action], dtype=torch.float)
+                next_state_tensor = torch.as_tensor(next_state_proxy, dtype=torch.float)
+                
+                step = torch.cat([state_tensor, action_tensor, next_state_tensor], dim=-1)
+                reward = self.target_reward_estimator(step).item()
+        
         state = self._get_state_idx(state)
         next_state = self._get_state_idx(next_state)
-        
-        if self.reward_prediction_type == 'approximate':
-            with torch.no_grad():
-                step = torch.FloatTensor([state, action, next_state])
-                reward = self.target_reward_estimator(step).item()
         
         td_target = reward + (1 - done) * self.q_table[next_state].max() 
         td_error = td_target - self.q_table[state, action]
@@ -149,49 +156,26 @@ class BasicQTable(EA):
             
         return losses
     
-    def _update_estimator(self, losses):        
-        if self.commutative_reward_buffer.real_size < self.batch_size:
+    def _update_estimator(self, losses, traditional_update=True):
+        if self.reward_buffer.real_size < self.batch_size:
             return losses
         
         indices = self.reward_buffer.sample(self.batch_size)
         steps = self.reward_buffer.transition[indices]
         rewards = self.reward_buffer.reward[indices].view(-1, 1)
-        # Predict r_1 from actual (s_1,b,s')
+        # Predict r_1 from actual (s_1,b,prev_state')
         self.reward_estimator.optim.zero_grad(set_to_none=True)
         r_pred = self.reward_estimator(steps)
         step_loss = F.mse_loss(r_pred, rewards)
         step_loss.backward()
         self.reward_estimator.optim.step()
-        
-        self.reward_estimator.optim.zero_grad(set_to_none=True)
-        commutative_indices = self.commutative_reward_buffer.sample(self.batch_size)
-        commutative_steps = self.commutative_reward_buffer.transition[commutative_indices]
-        commutative_rewards = self.commutative_reward_buffer.reward[commutative_indices]
-        # Approximate r_2 from (s,b,s_2) and r_3 from (s_2,a,s')
-        # MSE Loss: r_2 + r_3 = r_0 + r_1
-        summed_r0r1 = torch.sum(commutative_rewards, axis=1).view(-1, 1)
-        # Predict r_2 and r_3 from (s,b,s_2) and (s_2,a,s') respectively
-        r2_pred = self.reward_estimator(commutative_steps[:, 0])
-        r3_pred = self.reward_estimator(commutative_steps[:, 1])
-        # Calculate loss with respect to r_2
-        trace_loss_r2 = F.mse_loss(r2_pred + r3_pred.detach(), summed_r0r1)
-        # Calculate loss with respect to r_3
-        trace_loss_r3 = F.mse_loss(r2_pred.detach() + r3_pred, summed_r0r1)
-        combined_loss = trace_loss_r2 + trace_loss_r3
-        combined_loss.backward()
-        
-        self.reward_estimator.optim.step()
         self.reward_estimator.scheduler.step()
         
-        for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
-            target_param.data.copy_(self.estimator_tau * local_param.data + (1.0 - self.estimator_tau) * target_param.data)
-                    
-        # Attempt to log losses
-        try:
-            losses['step_loss'] += step_loss.item()
-            losses['trace_loss'] += trace_loss_r2.item()
-        except:
-            pass
+        if traditional_update:
+            for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
+                target_param.data.copy_(self.estimator_tau * local_param.data + (1.0 - self.estimator_tau) * target_param.data)
+                
+        losses['step_loss'] += step_loss.item()
         
         return losses
             
@@ -201,9 +185,10 @@ class BasicQTable(EA):
         commutative_td_errors = []
         step_losses = []
         trace_losses = []
-                
-        best_reward = -np.inf
-        best_action_seq = None
+        
+        q_table_ckpt = None
+        best_avg_rewards = -np.inf
+        warmup_episodes = 15000
         
         for episode in range(self.num_episodes):
             done = False
@@ -219,10 +204,10 @@ class BasicQTable(EA):
             losses = {'traditional_td_error': 0, 'commutative_td_error': 0, 'step_loss': 0, 'trace_loss': 0}
             while not done:
                 num_action += 1
-                transformed_action, action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
                 
-                if self.reward_prediction_type == 'approximate':
+                if 'approximate' in self.reward_prediction_type:
                     self._add_transition(state, action, reward, next_state, prev_state, prev_action, prev_reward)
                 
                 losses = self._update_q_table(state, action, reward, next_state, done, losses)
@@ -233,11 +218,12 @@ class BasicQTable(EA):
                 
                 state = next_state
                 episode_reward += reward
+                transformed_action = self._transform_action(action)
                 action_seq += [transformed_action]
                 
-            self._decrement_epsilon()
+            self._decrement_epsilon(episode)
 
-            if self.reward_prediction_type == 'approximate':
+            if 'approximate' in self.reward_prediction_type:
                 losses = self._update_estimator(losses)
 
             rewards.append(episode_reward)
@@ -259,21 +245,51 @@ class BasicQTable(EA):
                 "Average Step Loss": avg_step_loss, 
                 "Average Trace Loss": avg_trace_loss}, step=episode)
             
-            if episode_reward > best_reward:
-                best_action_seq = action_seq
-                best_reward = episode_reward
+            if episode > warmup_episodes and avg_rewards > best_avg_rewards:
+                best_avg_rewards = avg_rewards
+                q_table_ckpt = copy.deepcopy(self.q_table)
                 
-            self._save_checkpoint(problem_instance, episode)
+            self._save_estimator(problem_instance, episode)
             
-        return best_action_seq, best_reward
+        return q_table_ckpt
             
+    def _get_best_adaptation(self, problem_instance, q_table_ckpt):
+        best_rewards = -np.inf
+        best_adaptation = None
+        
+        self.epsilon = 0
+        self.q_table = q_table_ckpt
+        self.configs_to_consider = 100
+        for _ in range(self.eval_episodes):
+            done = False
+            action_seq = []
+            episode_reward = 0
+            state, adaptations = self._generate_fixed_state(problem_instance)
+            num_action = len(adaptations)
+            
+            while not done:
+                num_action += 1
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                
+                state = next_state
+                episode_reward += reward
+                transformed_action = self._transform_action(action)
+                action_seq += [transformed_action]
+                
+            if episode_reward > best_rewards:
+                best_rewards = episode_reward
+                best_adaptation = action_seq
+        
+        return best_adaptation, best_rewards
+                        
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
         
-        step_dims = 3
+        step_dims = self.state_dims*2 + 1
         
-        self.reward_buffer = RewardBuffer(self.memory_size, step_dims)
-        self.commutative_reward_buffer = CommutativeRewardBuffer(self.memory_size, step_dims)
+        self.reward_buffer = RewardBuffer(self.batch_size, step_dims, self.rng)
+        self.commutative_reward_buffer = CommutativeRewardBuffer(self.batch_size, step_dims, self.rng)
         self.reward_estimator = RewardEstimator(step_dims, self.estimator_alpha, self.step_size, self.gamma, self.dropout_rate)
         self.target_reward_estimator = copy.deepcopy(self.reward_estimator)  
         
@@ -285,7 +301,8 @@ class BasicQTable(EA):
         self._init_mapping(problem_instance)
         self._init_wandb(problem_instance)
         
-        best_adaptation, best_reward = self._train(problem_instance)
+        q_table_ckpt = self._train(problem_instance)
+        best_adaptation, best_reward = self._get_best_adaptation(problem_instance, q_table_ckpt)
         
         wandb.log({'Adaptation': best_adaptation, 'Final Reward': best_reward})
         wandb.finish()
@@ -294,8 +311,40 @@ class BasicQTable(EA):
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, random_state, reward_prediction_type):
-        super(CommutativeQTable, self).__init__(env, random_state, reward_prediction_type)    
+    def __init__(self, env, random_state, reward_prediction_type, rng):
+        super(CommutativeQTable, self).__init__(env, random_state, reward_prediction_type, rng)   
+    
+    def _update_estimator(self, losses):
+        losses = super()._update_estimator(losses, traditional_update=False)
+        
+        if self.commutative_reward_buffer.real_size < self.batch_size:
+            return losses
+        
+        self.reward_estimator.optim.zero_grad(set_to_none=True)
+        commutative_indices = self.commutative_reward_buffer.sample(self.batch_size)
+        commutative_steps = self.commutative_reward_buffer.transition[commutative_indices]
+        commutative_rewards = self.commutative_reward_buffer.reward[commutative_indices]
+        # Approximate r_2 from (s,b,commutative_state) and r_3 from (commutative_state,a,s')
+        # MSE Loss: r_2 + r_3 = r_0 + r_1
+        summed_r0r1 = torch.sum(commutative_rewards, axis=1).view(-1, 1)
+        # Predict r_2 and r_3 from (s,b,commutative_state) and (commutative_state,a,s') respectively
+        r2_pred = self.reward_estimator(commutative_steps[:, 0])
+        r3_pred = self.reward_estimator(commutative_steps[:, 1])
+        # Calculate loss with respect to r_2
+        trace_loss_r2 = F.mse_loss(r2_pred + r3_pred.detach(), summed_r0r1)
+        # Calculate loss with respect to r_3
+        trace_loss_r3 = F.mse_loss(r2_pred.detach() + r3_pred, summed_r0r1)
+        combined_loss = trace_loss_r2 + trace_loss_r3
+        combined_loss.backward()
+        
+        self.reward_estimator.optim.step()
+        
+        for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
+            target_param.data.copy_(self.estimator_tau * local_param.data + (1.0 - self.estimator_tau) * target_param.data)
+            
+        losses['trace_loss'] += trace_loss_r2.item()
+        
+        return losses
         
     """
     Update Rule 0: Traditional Q-Update
@@ -306,77 +355,46 @@ class CommutativeQTable(BasicQTable):
     def _update_q_table(self, state, action, reward, next_state, done, losses):
         losses = super()._update_q_table(state, action, reward, next_state, done, losses)
         
+        if self.reward_prediction_type not in ['lookup', 'approximate w/ commutative update']:
+            return losses
+        
         state_idx = self._get_state_idx(state)
         self.ptr_lst[(state_idx, action)] = [reward, next_state]
         
         if self.previous_sample is None:
             self.previous_sample = (state, action, reward)
         else:
-            s, a, r_0 = self.previous_sample
+            commutative_state = None
+            commutative_reward = None
             
-            s_1 = state
-            b = action
-            r_1 = reward
-            s_prime = next_state
+            prev_state, prev_action, prev_reward = self.previous_sample
+            prev_state_idx = self._get_state_idx(prev_state)
             
-            s_2 = None
-            r3_pred = None
-            
-            s_idx = self._get_state_idx(s)
             if 'lookup' in self.reward_prediction_type:
-                if (s_idx, b) in self.ptr_lst:
-                    r_2, s_2 = self.ptr_lst[(s_idx, b)]      
-                    r3_pred = r_0 + r_1 - r_2
-                    
-                    losses = super()._update_q_table(s_2, a, r3_pred, s_prime, done, losses, traditional_update=False)      
-            else:                
-                # r3_pred is predicted from reward estimator
-                r3_pred = None
+                if (prev_state_idx, action) in self.ptr_lst:
+                    lookup_reward, commutative_state = self.ptr_lst[(prev_state_idx, action)]      
+                    commutative_reward = prev_reward + reward - lookup_reward
+            else:            
+                commutative_reward = 0 # Placeholder since commutative_reward is predicted by the reward estimator
                 
-                transformed_action = self._transform_action(b)
-                s_2 = self._place_bridge(s, transformed_action)
+                state_idx = self._get_state_idx(state)
+                next_state_idx = self._get_state_idx(next_state)    
                 
-                s_idx = self._get_state_idx(s)
-                s_1_idx = self._get_state_idx(s_1)
-                s_2_idx = self._get_state_idx(s_2)
-                s_prime_idx = self._get_state_idx(s_prime)
+                action_b_success = state_idx != next_state_idx
                 
-                # Success of actions in ground truth trace
-                action_a_successful = s_1_idx != s_idx
-                action_b_successful = s_prime_idx != s_1_idx
+                # If action b is successful, then update (commutative_state, a) -> next_state
+                if action_b_success:
+                    transformed_action = self._transform_action(action)
+                    commutative_state = self._place_bridge(prev_state, transformed_action)
+                # If action b fails, then we don't know commutative_state so update (prev_state, a) -> state
+                else:
+                    commutative_state = prev_state
+                    next_state = state
+                                    
+            if commutative_reward is not None:
+                losses = super()._update_q_table(commutative_state, prev_action, commutative_reward, next_state, done, losses, traditional_update=False)      
                 
-                # If no successful action, then all commutative updates are redundant due to being handled by traditional update
-                if action_a_successful or action_b_successful:
-                    # ACCOUNT FOR ALL POSSIBLE TRACES THAT LEAD TO S'                        
-                        
-                    # Commutative Update Rule 1: Hallucinate both actions as unsuccessful: (s, b) -> s, (s, a) -> s
-                    if action_b_successful:
-                        # Hallucinate action b as unsuccessful
-                        losses = super()._update_q_table(s, b, r3_pred, s, False, losses, traditional_update=False)
-                    if action_a_successful:
-                        # Hallucinate action a as unsuccessful
-                        losses = super()._update_q_table(s, a, r3_pred, s, done, losses, traditional_update=False)
-
-                    # Commutative Update Rule 2: Hallucinate action b as unsuccessful and action a as successful: (s, b) -> s, (s, a) -> s_1
-                    # (s, b) -> s handled by Commutative Update Rule 1
-                    if not action_a_successful:
-                        losses = super()._update_q_table(s, a, r3_pred, s_1, done, losses, traditional_update=False)
-
-                    # Commutative Update Rule 3: Hallucinate action b as successful and action a as unsuccessful: (s, b) -> s_2, (s_2, a) -> s_2
-                    if not action_b_successful:
-                        # Hallucinate action b as successful
-                        losses = super()._update_q_table(s, b, r3_pred, s_2, False, losses, traditional_update=False)
-                    if action_a_successful:
-                        # Hallucinate action a as unsuccessful
-                        losses = super()._update_q_table(s_2, a, r3_pred, s_2, done, losses, traditional_update=False)
-
-                    # Commutative Update Rule 4: Hallucinate both actions b and a as successful: (s, b) -> s_2, (s_2, a) -> s_prime 
-                    if not action_b_successful and not action_a_successful:
-                        # (s, b) -> s_2 handled by Commutative Update Rule 3
-                        losses = super()._update_q_table(s_2, a, r3_pred, s_prime, done, losses, traditional_update=False)
-                    
-                
-            self.previous_sample = (s_1, b, r_1)
+            self.previous_sample = (state, action, reward)
             
         if done:
             self.previous_sample = None
@@ -391,8 +409,8 @@ class CommutativeQTable(BasicQTable):
     
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, random_state, reward_prediction_type):
-        super(HallucinatedQTable, self).__init__(env, random_state, reward_prediction_type)
+    def __init__(self, env, random_state, rng):
+        super(HallucinatedQTable, self).__init__(env, random_state, None, rng)
                 
     def _sample_permutations(self, action_seq):
         permutations = {}
