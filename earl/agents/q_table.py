@@ -32,15 +32,16 @@ class BasicQTable(EA):
         self.nS = 2 ** self.state_dims
         
     def _init_hyperparams(self):
-        self.warmup_episodes = 20000
+        self.eval_episodes = 25
+        self.warmup_episodes = 30000
         
         # Reward Estimator
-        self.gamma = 0.25
+        self.gamma = 0.50
         self.batch_size = 128
-        self.step_size = 5000
-        self.dropout_rate = 0.2
-        self.estimator_tau = 0.008
-        self.estimator_alpha = 0.003
+        self.step_size = 250000
+        self.dropout_rate = 0.50
+        self.estimator_tau = 0.25
+        self.estimator_alpha = 0.0003
         self.model_save_interval = 25000
 
         # Q-Table
@@ -89,7 +90,7 @@ class BasicQTable(EA):
     
     # Only decrement epsilon after reward estimator has been sufficiently trained
     def _decrement_epsilon(self, episode):
-        if episode > self.warmup_episodes:
+        if 'approximate' not in self.reward_prediction_type or episode > self.warmup_episodes:
             self.epsilon -= self.epsilon_decay
             self.epsilon = max(self.epsilon, self.min_epsilon)
             
@@ -163,11 +164,11 @@ class BasicQTable(EA):
         if self.reward_buffer.real_size < self.batch_size:
             return losses
         
+        self.reward_estimator.optim.zero_grad(set_to_none=True)
         indices = self.reward_buffer.sample(self.batch_size)
         steps = self.reward_buffer.transition[indices]
         rewards = self.reward_buffer.reward[indices].view(-1, 1)
         # Predict r_1 from actual (s_1,b,prev_state')
-        self.reward_estimator.optim.zero_grad(set_to_none=True)
         r_pred = self.reward_estimator(steps)
         step_loss = F.mse_loss(r_pred, rewards)
         step_loss.backward()
@@ -247,7 +248,7 @@ class BasicQTable(EA):
                 "Average Step Loss": avg_step_loss, 
                 "Average Trace Loss": avg_trace_loss}, step=episode)
             
-            if episode > warmup_episodes and avg_rewards > best_avg_rewards:
+            if episode > 20000 and avg_rewards > best_avg_rewards:
                 best_avg_rewards = avg_rewards
                 q_table_ckpt = copy.deepcopy(self.q_table)
                 
@@ -332,13 +333,10 @@ class CommutativeQTable(BasicQTable):
         # Predict r_2 and r_3 from (s,b,commutative_state) and (commutative_state,a,s') respectively
         r2_pred = self.reward_estimator(commutative_steps[:, 0])
         r3_pred = self.reward_estimator(commutative_steps[:, 1])
-        # Calculate loss with respect to r_2
         trace_loss_r2 = F.mse_loss(r2_pred + r3_pred.detach(), summed_r0r1)
-        # Calculate loss with respect to r_3
         trace_loss_r3 = F.mse_loss(r2_pred.detach() + r3_pred, summed_r0r1)
         combined_loss = trace_loss_r2 + trace_loss_r3
         combined_loss.backward()
-        
         self.reward_estimator.optim.step()
         
         for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
@@ -443,59 +441,72 @@ class HallucinatedQTable(BasicQTable):
         return list(permutations.keys())       
     
     # Hallucinate episodes by permuting the action sequence to simulate commutativity
-    def _hallucinate(self, start_state, action_seq, episode_reward):
+    def _hallucinate(self, start_state, action_seq, episode_reward, losses):
         permutations = self._sample_permutations(action_seq)
         for permutation in permutations:
             num_action = 0
             state = start_state
             terminating_action = permutation[-1]
-            for original_action in permutation:
+            for action in permutation:
                 num_action += 1
-                transformed_action = self._transform_action(original_action)
-                next_state = self._get_next_state(state, transformed_action)
+                next_state = self._get_next_state(state, action)
                 
-                if original_action == terminating_action:
+                if action == terminating_action:
                     reward = episode_reward
                     done = True
                 else:
                     reward = 0
                     done = False
                     
-                self._update_q_table(state, original_action, reward, next_state, done)
+                losses = self._update_q_table(state, action, reward, next_state, done, losses)
                 state = next_state
+                
+        return losses
     
     def _train(self, problem_instance):
         rewards = []
+        traditional_td_errors = []
         
-        best_reward = -np.inf
-        best_action_seq = None
+        q_table_ckpt = None
+        best_avg_rewards = -np.inf
         
-        for _ in range(self.num_episodes):
+        for episode in range(self.num_episodes):
             done = False
             action_seq = []
             episode_reward = 0
             start_state, bridges = self._generate_init_state(problem_instance)
             num_action = len(bridges)
+            
             state = start_state
+            
+            losses = {'traditional_td_error': 0}
             while not done:
                 num_action += 1
-                transformed_action, original_action = self._select_action(problem_instance, state)
-                reward, next_state, done = self._step(problem_instance, state, transformed_action, num_action)   
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)   
                              
                 state = next_state
-                action_seq += [original_action]
                 episode_reward += reward
+                transformed_action = self._transform_action(action)
+                action_seq += [transformed_action]
                 
-            self._hallucinate(start_state, action_seq, episode_reward)
-            self._decrement_epsilon()
+            losses = self._hallucinate(start_state, action_seq, episode_reward, losses)
+            
+            self._decrement_epsilon(episode)
             
             rewards.append(episode_reward)
+            traditional_td_errors.append(losses['traditional_td_error'])
+
             avg_rewards = np.mean(rewards[-self.sma_window:])
-            wandb.log({"Average Reward": avg_rewards})
+            avg_traditional_td_errors = np.mean(traditional_td_errors[-self.sma_window:])
+
+            wandb.log({
+                "Average Reward": avg_rewards,
+                "Average Traditional TD Error": avg_traditional_td_errors}, step=episode)
             
-            if episode_reward > best_reward:
-                best_action_seq = action_seq
-                best_reward = episode_reward
+            if episode > 20000 and avg_rewards > best_avg_rewards:
+                best_avg_rewards = avg_rewards
+                q_table_ckpt = copy.deepcopy(self.q_table)
             
-        return best_action_seq, best_reward
+        return q_table_ckpt
     
