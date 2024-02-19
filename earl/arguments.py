@@ -33,7 +33,7 @@ def get_arguments():
         '--reward_prediction_type', 
         type=str, 
         default='approximate w/ commutative update', 
-        choices=['approximate', 'approximate' 'approximate w/ commutative update'], 
+        choices=['lookup', 'approximate', 'approximate w/ commutative update'], 
         help='Type of way to predict the reward r_3 {default_val: %(default)s}'
         )
     
