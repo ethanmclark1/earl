@@ -16,20 +16,19 @@ class EARL:
             render_mode=None
             )
         
-        random_seed = 42
+        rng = np.random.default_rng(seed=42)
         self.num_cols = self.env.unwrapped.ncol
-        self.rng = np.random.default_rng(seed=random_seed)
         
         # Q-Learning
-        self.basic_q_table = BasicQTable(self.env, self.rng, random_state, reward_prediction_type)
-        self.commutative_q_table = CommutativeQTable(self.env, self.rng, random_state, reward_prediction_type)
-        self.hallucinated_q_table = HallucinatedQTable(self.env, self.rng, random_state, reward_prediction_type)
+        self.basic_q_table = BasicQTable(self.env, random_state, reward_prediction_type, rng)
+        self.commutative_q_table = CommutativeQTable(self.env, random_state, reward_prediction_type, rng)
+        self.hallucinated_q_table = HallucinatedQTable(self.env, random_state, rng)
         
         # Function Approximations
-        self.basic_lfa = BasicLFA(self.env, self.rng, random_state)
-        self.commutative_lfa = CommutativeLFA(self.env, self.rng, random_state, reward_prediction_type)
-        self.hallucinated_lfa = HallucinatedLFA(self.env, self.rng, random_state)
-        self.attention_neuron = AttentionNeuron(self.env, self.rng, random_state)
+        self.basic_lfa = BasicLFA(self.env, random_state, reward_prediction_type, rng)
+        self.commutative_lfa = CommutativeLFA(self.env, random_state, reward_prediction_type, rng)
+        self.hallucinated_lfa = HallucinatedLFA(self.env, random_state, rng)
+        self.attention_neuron = AttentionNeuron(self.env, random_state, rng)
                 
     def retrieve_modifications(self, approach, problem):            
         approach = getattr(self, approach)
