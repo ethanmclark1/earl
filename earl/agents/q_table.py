@@ -31,62 +31,56 @@ class BasicQTable(EA):
         
         self.nS = 2 ** self.state_dims
         
-    def _init_hyperparams(self):
-        self.eval_episodes = 25
-        self.warmup_episodes = 30000
-        
+    def _init_hyperparams(self):        
         # Reward Estimator
-        self.gamma = 0.50
         self.batch_size = 128
-        self.step_size = 250000
-        self.dropout_rate = 0.50
+        self.dropout_rate = 0.40
         self.estimator_tau = 0.25
         self.estimator_alpha = 0.0003
         self.model_save_interval = 25000
 
         # Q-Table
         self.alpha = 0.0005
-        self.max_seq_len = 7
         self.epsilon_start = 1
-        self.sma_window = 5000
         self.min_epsilon = 0.10
-        self.num_episodes = 300000
-        self.epsilon_decay = 0.00001 if self.random_state else 0.00001
+        self.max_seq_len = 7 if self.problem_size == '8x8' else 5
+        self.sma_window = 5000 if self.problem_size == '8x8' else 1000
+        self.num_episodes = 500000 if self.problem_size == '8x8' else 100000
+        self.epsilon_decay = 0.0001 if self.problem_size == '8x8' else 0.00001
+        
+        # Evaluation Settings
+        self.eval_window = 100
+        self.eval_configs = 20
+        self.eval_episodes = 10
+        self.eval_freq = 1000 if self.problem_size == '8x8' else 500
+        
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
-        config.gamma = self.gamma
-        config.step_size = self.step_size
+        config.eval_freq = self.eval_freq
         config.batch_size = self.batch_size
         config.sma_window = self.sma_window
         config.max_action = self.max_action
         config.batch_size = self.batch_size
+        config.eval_window = self.eval_window
         config.action_cost = self.action_cost
         config.min_epsilon = self.min_epsilon
         config.max_seq_len = self.max_seq_len
         config.random_state = self.random_state
         config.num_episodes = self.num_episodes
         config.dropout_rate = self.dropout_rate
+        config.problem_size = self.problem_size
+        config.eval_episodes = self.eval_episodes
         config.epsilon_decay = self.epsilon_decay
         config.estimator_tau = self.estimator_tau
-        config.percent_holes = self.percent_holes
         config.warmup_episodes = self.warmup_episodes
         config.estimator_alpha = self.estimator_alpha
         config.reward_estimator = self.reward_estimator 
-        config.model_save_interval = self.model_save_interval
         config.action_success_rate = self.action_success_rate
+        config.model_save_interval = self.model_save_interval
         config.configs_to_consider = self.configs_to_consider
         config.reward_prediction_type = self.reward_prediction_type
-        
-    def _save_estimator(self, problem_instance, episode):
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-        
-        if episode % self.model_save_interval == 0:
-            filename = f'{problem_instance}_{episode}.pt'
-            file_path = os.path.join(self.output_dir, filename)
-            torch.save(self.reward_estimator.state_dict(), file_path)
     
     # Only decrement epsilon after reward estimator has been sufficiently trained
     def _decrement_epsilon(self, episode):
@@ -173,7 +167,6 @@ class BasicQTable(EA):
         step_loss = F.mse_loss(r_pred, rewards)
         step_loss.backward()
         self.reward_estimator.optim.step()
-        self.reward_estimator.scheduler.step()
         
         if traditional_update:
             for target_param, local_param in zip(self.target_reward_estimator.parameters(), self.reward_estimator.parameters()):
@@ -182,6 +175,38 @@ class BasicQTable(EA):
         losses['step_loss'] += step_loss.item()
         
         return losses
+    
+    def _eval_policy(self, problem_instance):
+        rewards = []
+
+        best_reward = -np.inf
+        training_configs = self.configs_to_consider
+        self.configs_to_consider = self.eval_configs
+        for _ in range(self.eval_episodes):
+            done = False
+            action_seq = []
+            episode_reward = 0
+            state, bridges = self._generate_init_state(problem_instance)
+            num_action = len(bridges)
+            
+            while not done:
+                num_action += 1
+                action = self._select_action(state)
+                reward, next_state, done = self._step(problem_instance, state, action, num_action)
+                
+                state = next_state
+                episode_reward += reward
+                transformed_action = self._transform_action(action)
+                action_seq += [transformed_action]
+                
+            rewards.append(episode_reward)
+            
+            if episode_reward > best_reward:
+                best_reward = episode_reward
+                best_adaptation = action_seq
+        
+        self.configs_to_consider = training_configs
+        return np.mean(rewards), best_reward, best_adaptation
             
     def _train(self, problem_instance):
         rewards = []
@@ -190,13 +215,11 @@ class BasicQTable(EA):
         step_losses = []
         trace_losses = []
         
-        q_table_ckpt = None
-        best_avg_rewards = -np.inf
-        
+        best_reward = -np.inf
+                
         for episode in range(self.num_episodes):
             done = False
             action_seq = []
-            episode_reward = 0
             state, bridges = self._generate_init_state(problem_instance)
             num_action = len(bridges)
             
@@ -220,7 +243,6 @@ class BasicQTable(EA):
                 prev_reward = reward
                 
                 state = next_state
-                episode_reward += reward
                 transformed_action = self._transform_action(action)
                 action_seq += [transformed_action]
                 
@@ -228,63 +250,34 @@ class BasicQTable(EA):
 
             if 'approximate' in self.reward_prediction_type:
                 losses = self._update_estimator(losses)
-
-            rewards.append(episode_reward)
+                
+            if episode % self.eval_freq == 0:
+                reward, best_eval_reward, best_eval_adaptations = self._eval_policy(problem_instance)
+                rewards.append(reward)
+                avg_rewards = np.mean(rewards[-self.eval_window:])
+                wandb.log({'Average Reward': avg_rewards}, step=episode)
+                
+                if best_reward > best_eval_reward:
+                    best_reward = best_eval_reward
+                    best_adaptations = best_eval_adaptations
+                
             traditional_td_errors.append(losses['traditional_td_error'])
             commutative_td_errors.append(losses['commutative_td_error'])
             step_losses.append(losses['step_loss'] / (num_action - len(bridges)))
             trace_losses.append(losses['trace_loss'] / (num_action - len(bridges)))
             
-            avg_rewards = np.mean(rewards[-self.sma_window:])
             avg_traditional_td_errors = np.mean(traditional_td_errors[-self.sma_window:])
             avg_commutative_td_errors = np.mean(commutative_td_errors[-self.sma_window:])
             avg_step_loss = np.mean(step_losses[-self.sma_window:])
             avg_trace_loss = np.mean(trace_losses[-self.sma_window:])
             
             wandb.log({
-                "Average Reward": avg_rewards,
                 "Average Traditional TD Error": avg_traditional_td_errors,
                 "Average Commutative TD Error": avg_commutative_td_errors,
                 "Average Step Loss": avg_step_loss, 
                 "Average Trace Loss": avg_trace_loss}, step=episode)
             
-            if episode > 20000 and avg_rewards > best_avg_rewards:
-                best_avg_rewards = avg_rewards
-                q_table_ckpt = copy.deepcopy(self.q_table)
-                
-            self._save_estimator(problem_instance, episode)
-            
-        return q_table_ckpt
-            
-    def _get_best_adaptation(self, problem_instance, q_table_ckpt):
-        best_rewards = -np.inf
-        best_adaptation = None
-        
-        self.epsilon = 0
-        self.q_table = q_table_ckpt
-        self.configs_to_consider = 100
-        for _ in range(self.eval_episodes):
-            done = False
-            action_seq = []
-            episode_reward = 0
-            state, adaptations = self._generate_fixed_state(problem_instance)
-            num_action = len(adaptations)
-            
-            while not done:
-                num_action += 1
-                action = self._select_action(state)
-                reward, next_state, done = self._step(problem_instance, state, action, num_action)
-                
-                state = next_state
-                episode_reward += reward
-                transformed_action = self._transform_action(action)
-                action_seq += [transformed_action]
-                
-            if episode_reward > best_rewards:
-                best_rewards = episode_reward
-                best_adaptation = action_seq
-        
-        return best_adaptation, best_rewards
+        return best_reward, best_adaptations
                         
     def _generate_adaptations(self, problem_instance):
         self.epsilon = self.epsilon_start
@@ -293,7 +286,7 @@ class BasicQTable(EA):
         
         self.reward_buffer = RewardBuffer(self.batch_size, step_dims, self.rng)
         self.commutative_reward_buffer = CommutativeRewardBuffer(self.batch_size, step_dims, self.rng)
-        self.reward_estimator = RewardEstimator(step_dims, self.estimator_alpha, self.step_size, self.gamma, self.dropout_rate)
+        self.reward_estimator = RewardEstimator(step_dims, self.estimator_alpha, self.dropout_rate)
         self.target_reward_estimator = copy.deepcopy(self.reward_estimator)  
         
         self.reward_estimator.train()
@@ -304,8 +297,7 @@ class BasicQTable(EA):
         self._init_mapping(problem_instance)
         self._init_wandb(problem_instance)
         
-        q_table_ckpt = self._train(problem_instance)
-        best_adaptation, best_reward = self._get_best_adaptation(problem_instance, q_table_ckpt)
+        best_reward, best_adaptation = self._train(problem_instance)
         
         wandb.log({'Adaptation': best_adaptation, 'Final Reward': best_reward})
         wandb.finish()
@@ -355,9 +347,6 @@ class CommutativeQTable(BasicQTable):
     def _update_q_table(self, state, action, reward, next_state, done, losses):
         losses = super()._update_q_table(state, action, reward, next_state, done, losses)
         
-        if self.reward_prediction_type not in ['lookup', 'approximate w/ commutative update']:
-            return losses
-        
         state_idx = self._get_state_idx(state)
         self.ptr_lst[(state_idx, action)] = [reward, next_state]
         
@@ -376,20 +365,25 @@ class CommutativeQTable(BasicQTable):
                     commutative_reward = prev_reward + reward - lookup_reward
             else:            
                 commutative_reward = 0 # Placeholder since commutative_reward is predicted by the reward estimator
+                transformed_action = self._transform_action(action)
+                commutative_state = self._place_bridge(prev_state, transformed_action)
                 
                 state_idx = self._get_state_idx(state)
                 next_state_idx = self._get_state_idx(next_state)    
                 
-                action_b_success = state_idx != next_state_idx
+                action_a_success = prev_state_idx != state_idx
+                action_b_success = state_idx != next_state_idx                    
                 
-                # If action b is successful, then update (commutative_state, a) -> next_state
-                if action_b_success:
-                    transformed_action = self._transform_action(action)
-                    commutative_state = self._place_bridge(prev_state, transformed_action)
-                # If action b fails, then we don't know commutative_state so update (prev_state, a) -> state
-                else:
+                if action_a_success and action_b_success:
+                    pass
+                elif not action_a_success and action_b_success:
+                    next_state = commutative_state
+                elif action_a_success and not action_b_success:
                     commutative_state = prev_state
                     next_state = state
+                else:
+                    commutative_state = prev_state
+                    next_state = prev_state
                                     
             if commutative_reward is not None:
                 losses = super()._update_q_table(commutative_state, prev_action, commutative_reward, next_state, done, losses, traditional_update=False)      
