@@ -10,7 +10,7 @@ torch.manual_seed(seed=42)
 
 
 class RewardEstimator(nn.Module):
-    def __init__(self, input_dims, lr, step_size, gamma, dropout_rate):
+    def __init__(self, input_dims, lr, dropout_rate):
         super(RewardEstimator, self).__init__()
         self.fc1 = nn.Linear(in_features=input_dims, out_features=64)   
         self.ln1 = nn.LayerNorm(64)
@@ -22,7 +22,6 @@ class RewardEstimator(nn.Module):
         
         self.dropout = nn.Dropout(p=dropout_rate)
         self.optim = Adam(self.parameters(), lr=lr)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim, step_size=step_size, gamma=gamma)
         
     def forward(self, x):
         x = F.relu(self.ln1(self.fc1(x)))
