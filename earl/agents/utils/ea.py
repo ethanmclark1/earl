@@ -8,30 +8,35 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, random_state, rng):
+    def __init__(self, env, cost_fn, random_state, rng):
         self.env = env
         self.random_state = random_state
         self.rng = rng
-
+        
+        self.problem_size = env.spec.kwargs['map_name']
+        # TODO: Generate 4x4 problems
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
-        self.max_action = 10
-        self.state_dims = 16
-        self.action_cost = 0.02
+        self.cost_fn = cost_fn
+        self.action_cost = 0.05
+        self.max_action = 10 if self.problem_size == '8x8' else 5
+        self.state_dims = 16 if self.problem_size == '8x8' else 4
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = self.state_dims + 1    
         
         # Stochasticity Parameters
-        self.percent_holes = 0.75
         self.configs_to_consider = 1
-        self.action_success_rate = 0.75
+        self.action_success_rate = 0.80
+        
+        self.num_cols = env.unwrapped.ncol
+        self.grid_dims = env.unwrapped.desc.shape
         
         self.num_cols = env.unwrapped.ncol
         self.grid_dims = env.unwrapped.desc.shape
 
     def _save(self, approach, problem_instance, adaptation):
         directory = f'earl/agents/history/{approach.lower()}'
-        filename = f'{problem_instance}.pkl'
+        filename = f'{self.problem_size}_{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -42,45 +47,53 @@ class EA:
     def _load(self, approach, problem_instance):
         problem_instance = 'cheese'
         directory = f'earl/agents/history/{approach.lower()}'
-        filename = f'{problem_instance}.pkl'
+        filename = f'{self.problem_size}_{problem_instance}.pkl'
         file_path = os.path.join(directory, filename)
         with open(file_path, 'rb') as f:
             adaptation = pickle.load(f)
         return adaptation
     
     def _init_wandb(self, problem_instance):
+        if self.reward_prediction_type == 'approximate':
+            reward_prediction_type = 'Estimator'
+        else:
+            reward_prediction_type = 'Lookup'
+        
         wandb.init(
             project='earl', 
             entity='ethanmclark1', 
-            name=f'{self.__class__.__name__}/{problem_instance.capitalize()}'
+            name=f'{self.__class__.__name__} w/ {reward_prediction_type.capitalize()} & {self.cost_fn.capitalize()} Cost',
+            tags=[f'{problem_instance.capitalize()}', f'{self.problem_size}'],
             )
         
         config = wandb.config
         return config
     
     # Initialize action mapping for a given problem instance
-    def _init_mapping(self, problem_instance):
-        if problem_instance == 'citycenter':
-            self.mapping = {0: 2, 1: 6, 2: 12, 3: 17,
-                            4: 18, 5: 25, 6: 30, 7: 38,
-                            8: 42, 9: 43, 10: 46, 11: 49, 
-                            12: 50, 13: 52, 14: 62, 15: 63
-                            }            
-        elif problem_instance == 'pathway':
-            self.mapping = {0: 9, 1: 12, 2: 22, 3: 25, 
-                            4: 26, 5: 27, 6: 28, 7: 29, 
-                            8: 30, 9: 38, 10: 40, 11: 42, 
-                            12: 46, 13: 48, 14: 49, 15: 52
+    def _init_mapping(self, problem_instance):   
+        if self.problem_size == '8x8' and problem_instance == 'columns':
+            self.mapping = {0: 9, 1: 14, 2: 19, 3: 27,
+                            4: 28, 5: 29, 6: 30, 7: 35,
+                            8: 36, 9: 41, 10: 43, 11: 44,
+                            12: 56, 13: 57, 14: 59, 15: 63
                             }
+            self.warmup_episodes = 15000
+        elif self.problem_size == '8x8' and problem_instance == 'pathway':            
+            self.mapping = {0: 9, 1: 13, 2: 25, 3: 26, 
+                            4: 27, 5: 28, 6: 29, 7: 30, 
+                            8: 41, 9: 43, 10: 45, 11: 47, 
+                            12: 58, 13: 59, 14: 61, 15: 62
+                            }
+            self.warmup_episodes = 10000
     
     def _generate_fixed_state(self, problem_instance):
         return np.zeros(self.grid_dims, dtype=int), []
     
     # Generate initial state for a given problem instance
     def _generate_random_state(self, problem_instance):
-        starts = problems.problems[problem_instance]['starts']
-        goals = problems.problems[problem_instance]['goals']
-        holes = problems.problems[problem_instance]['holes']
+        starts = problems.problems[self.problem_size][problem_instance]['starts']
+        goals = problems.problems[self.problem_size][problem_instance]['goals']
+        holes = problems.problems[self.problem_size][problem_instance]['holes']
         
         num_bridges = self.rng.choice(self.max_action)
         bridges = self.rng.choice(holes, size=num_bridges, replace=True)
@@ -165,7 +178,7 @@ class EA:
         for _ in range(self.configs_to_consider):
             tmp_desc = copy.deepcopy(desc)
             tmp_graph = copy.deepcopy(graph)
-            start, goal, obstacles = problems.get_entity_positions(problem_instance, self.rng, self.percent_holes)
+            start, goal, obstacles = problems.get_entity_positions(self.problem_size, problem_instance, self.rng)
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
             #  Place obstacle in cell only if bridge is not already there
@@ -206,7 +219,17 @@ class EA:
                 util_s = self._calc_utility(problem_instance, state)
                 util_s_prime = self._calc_utility(problem_instance, next_state)
                 reward = util_s_prime - util_s
-            reward -= self.action_cost * num_action
+            
+            if self.cost_fn == 'linear':
+                action_cost = (self.action_cost * num_action)
+            elif self.cost_fn == 'sublinear':
+                action_cost = (self.action_cost * np.sqrt(num_action))
+            elif self.cost_fn == 'logarithmic':
+                action_cost = (self.action_cost * np.log(num_action))
+            else:
+                action_cost = self.action_cost
+                
+            reward -= action_cost
         
         return reward, (done or timeout)
         

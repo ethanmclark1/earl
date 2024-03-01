@@ -15,8 +15,8 @@ torch.manual_seed(seed=42)
 
 
 class BasicQTable(EA):
-    def __init__(self, env, random_state, reward_prediction_type, rng):
-        super(BasicQTable, self).__init__(env, random_state, rng)
+    def __init__(self, env, cost_fn, random_state, reward_prediction_type, rng):
+        super(BasicQTable, self).__init__(env, cost_fn, random_state, rng)
         self._init_hyperparams()
         
         self.name = self.__class__.__name__
@@ -33,31 +33,30 @@ class BasicQTable(EA):
         
     def _init_hyperparams(self):        
         # Reward Estimator
-        self.batch_size = 128
-        self.dropout_rate = 0.40
-        self.estimator_tau = 0.25
-        self.estimator_alpha = 0.0003
-        self.model_save_interval = 25000
+        self.batch_size = 128 if self.problem_size == '8x8' else 64
+        self.dropout_rate = 0.40 if self.problem_size == '8x8' else 0.40
+        self.estimator_tau = 0.25 if self.problem_size == '8x8' else 0.25
+        self.estimator_alpha = 0.0003 if self.problem_size == '8x8' else 0.0003
 
         # Q-Table
-        self.alpha = 0.0005
         self.epsilon_start = 1
         self.min_epsilon = 0.10
-        self.max_seq_len = 7 if self.problem_size == '8x8' else 5
-        self.sma_window = 5000 if self.problem_size == '8x8' else 1000
-        self.num_episodes = 500000 if self.problem_size == '8x8' else 100000
-        self.epsilon_decay = 0.0001 if self.problem_size == '8x8' else 0.00001
+        self.max_seq_len = 7 if self.problem_size == '8x8' else 4
+        self.alpha = 0.0005 if self.problem_size == '8x8' else 0.0008
+        self.sma_window = 5000 if self.problem_size == '8x8' else 2000
+        self.num_episodes = 500000 if self.problem_size == '8x8' else 50000
+        self.epsilon_decay = 0.0001 if self.problem_size == '8x8' else 0.0001
         
         # Evaluation Settings
-        self.eval_window = 100
-        self.eval_configs = 20
-        self.eval_episodes = 10
-        self.eval_freq = 1000 if self.problem_size == '8x8' else 500
-        
+        self.eval_window = 10
+        self.eval_configs = 40 if self.problem_size == '8x8' else 20
+        self.eval_freq = 1000 if self.problem_size == '8x8' else 100
+        self.eval_episodes = 40 if self.problem_size == '8x8' else 40
         
     def _init_wandb(self, problem_instance):
         config = super()._init_wandb(problem_instance)
         config.alpha = self.alpha
+        config.cost_fn = self.cost_fn
         config.eval_freq = self.eval_freq
         config.batch_size = self.batch_size
         config.sma_window = self.sma_window
@@ -78,7 +77,6 @@ class BasicQTable(EA):
         config.estimator_alpha = self.estimator_alpha
         config.reward_estimator = self.reward_estimator 
         config.action_success_rate = self.action_success_rate
-        config.model_save_interval = self.model_save_interval
         config.configs_to_consider = self.configs_to_consider
         config.reward_prediction_type = self.reward_prediction_type
     
@@ -179,7 +177,7 @@ class BasicQTable(EA):
     def _eval_policy(self, problem_instance):
         rewards = []
 
-        best_reward = -np.inf
+        best_eval_reward = -np.inf
         training_configs = self.configs_to_consider
         self.configs_to_consider = self.eval_configs
         for _ in range(self.eval_episodes):
@@ -201,12 +199,12 @@ class BasicQTable(EA):
                 
             rewards.append(episode_reward)
             
-            if episode_reward > best_reward:
-                best_reward = episode_reward
-                best_adaptation = action_seq
+            if episode_reward > best_eval_reward:
+                best_eval_reward = episode_reward
+                best_adaptations = action_seq
         
         self.configs_to_consider = training_configs
-        return np.mean(rewards), best_reward, best_adaptation
+        return np.mean(rewards), best_eval_reward, best_adaptations
             
     def _train(self, problem_instance):
         rewards = []
@@ -219,7 +217,6 @@ class BasicQTable(EA):
                 
         for episode in range(self.num_episodes):
             done = False
-            action_seq = []
             state, bridges = self._generate_init_state(problem_instance)
             num_action = len(bridges)
             
@@ -243,8 +240,6 @@ class BasicQTable(EA):
                 prev_reward = reward
                 
                 state = next_state
-                transformed_action = self._transform_action(action)
-                action_seq += [transformed_action]
                 
             self._decrement_epsilon(episode)
 
@@ -257,7 +252,7 @@ class BasicQTable(EA):
                 avg_rewards = np.mean(rewards[-self.eval_window:])
                 wandb.log({'Average Reward': avg_rewards}, step=episode)
                 
-                if best_reward > best_eval_reward:
+                if best_eval_reward > best_reward:
                     best_reward = best_eval_reward
                     best_adaptations = best_eval_adaptations
                 
@@ -297,17 +292,21 @@ class BasicQTable(EA):
         self._init_mapping(problem_instance)
         self._init_wandb(problem_instance)
         
-        best_reward, best_adaptation = self._train(problem_instance)
+        best_reward, best_adaptations = self._train(problem_instance)
         
-        wandb.log({'Adaptation': best_adaptation, 'Final Reward': best_reward})
+        final_adaptations = best_adaptations
+        if final_adaptations[-1] == self.max_action:
+            final_adaptations[-1] = -1
+            
+        wandb.log({'Adaptations': best_adaptations, 'Final Reward': best_reward})
         wandb.finish()
         
-        return best_adaptation
+        return best_adaptations
     
     
 class CommutativeQTable(BasicQTable):
-    def __init__(self, env, random_state, reward_prediction_type, rng):
-        super(CommutativeQTable, self).__init__(env, random_state, reward_prediction_type, rng)   
+    def __init__(self, env, cost_fn, random_state, reward_prediction_type, rng):
+        super(CommutativeQTable, self).__init__(env, cost_fn, random_state, reward_prediction_type, rng)   
     
     def _update_estimator(self, losses):
         losses = super()._update_estimator(losses, traditional_update=False)
@@ -403,8 +402,8 @@ class CommutativeQTable(BasicQTable):
     
 
 class HallucinatedQTable(BasicQTable):
-    def __init__(self, env, random_state, rng):
-        super(HallucinatedQTable, self).__init__(env, random_state, None, rng)
+    def __init__(self, env, cost_fn, random_state, rng):
+        super(HallucinatedQTable, self).__init__(env, cost_fn, random_state, None, rng)
                 
     def _sample_permutations(self, action_seq):
         permutations = {}

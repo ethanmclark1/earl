@@ -14,13 +14,27 @@ def get_arguments():
         )
     
     parser.add_argument(
+        '--problem_size',
+        type=str,
+        default='small',
+        choices=['small', 'big'],
+        help='Size of the problem instance {default_val: %(default)s, choices: [%(choices)s]}'
+        )
+    
+    parser.add_argument(
         '--problem_instance', 
         type=str, 
-        default='citycenter', 
-        choices=['citycenter', 'pathway'],
+        default='columns', 
+        choices=['columns', 'pathway'],
         help='Which problem to attempt {default_val: %(default)s, choices: [%(choices)s]}'
         )
-            
+    
+    parser.add_argument(
+        '--cost_fn',
+        type=str,
+        default='linear',
+        choices=['linear', 'sublinear', 'logarithmic', 'constant'],
+    )
     parser.add_argument(
         '--random_state', 
         type=int, 
@@ -32,11 +46,11 @@ def get_arguments():
     parser.add_argument(
         '--reward_prediction_type', 
         type=str, 
-        default='approximate w/ commutative update', 
-        choices=['lookup', 'approximate', 'approximate w/ commutative update'], 
+        default='approximate', 
+        choices=['lookup', 'approximate'], 
         help='Type of way to predict the reward r_3 {default_val: %(default)s}'
         )
     
     args = parser.parse_args()
         
-    return args.approach, args.problem_instance, bool(args.random_state), args.reward_prediction_type
+    return args.approach, args.problem_size, args.problem_instance, args.cost_fn, bool(args.random_state), args.reward_prediction_type
