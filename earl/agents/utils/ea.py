@@ -8,19 +8,18 @@ import networkx as nx
 
 
 class EA:
-    def __init__(self, env, cost_fn, random_state, rng):
+    def __init__(self, env, num_instances, random_state, rng):
         self.env = env
         self.random_state = random_state
         self.rng = rng
         
         self.problem_size = env.spec.kwargs['map_name']
-        # TODO: Generate 4x4 problems
+        problems.generate_problems(self.problem_size, self.rng, num_instances)
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
-        self.cost_fn = cost_fn
-        self.action_cost = 0.05
         self.max_action = 10 if self.problem_size == '8x8' else 5
         self.state_dims = 16 if self.problem_size == '8x8' else 4
+        self.action_cost = 0.03 if self.problem_size == '8x8' else 0.06
         # Add a dummy action (+1) to terminate the episode
         self.action_dims = self.state_dims + 1    
         
@@ -62,7 +61,7 @@ class EA:
         wandb.init(
             project='earl', 
             entity='ethanmclark1', 
-            name=f'{self.__class__.__name__} w/ {reward_prediction_type.capitalize()} & {self.cost_fn.capitalize()} Cost',
+            name=f'{self.__class__.__name__} w/ {reward_prediction_type.capitalize()}',
             tags=[f'{problem_instance.capitalize()}', f'{self.problem_size}'],
             )
         
@@ -70,30 +69,25 @@ class EA:
         return config
     
     # Initialize action mapping for a given problem instance
-    def _init_mapping(self, problem_instance):   
+    def _init_instance(self, problem_instance):   
         if self.problem_size == '8x8' and problem_instance == 'columns':
-            self.mapping = {0: 9, 1: 14, 2: 19, 3: 27,
-                            4: 28, 5: 29, 6: 30, 7: 35,
-                            8: 36, 9: 41, 10: 43, 11: 44,
-                            12: 56, 13: 57, 14: 59, 15: 63
-                            }
             self.warmup_episodes = 15000
+            self.instance = problems.get_instance(problem_instance)
         elif self.problem_size == '8x8' and problem_instance == 'pathway':            
-            self.mapping = {0: 9, 1: 13, 2: 25, 3: 26, 
-                            4: 27, 5: 28, 6: 29, 7: 30, 
-                            8: 41, 9: 43, 10: 45, 11: 47, 
-                            12: 58, 13: 59, 14: 61, 15: 62
-                            }
             self.warmup_episodes = 10000
-    
-    def _generate_fixed_state(self, problem_instance):
+            self.instance = problems.get_instance(problem_instance)
+        else:
+            self.warmup_episodes = 250
+            self.instance = problems.get_instance(problem_instance)
+
+    def _generate_fixed_state(self):
         return np.zeros(self.grid_dims, dtype=int), []
     
     # Generate initial state for a given problem instance
-    def _generate_random_state(self, problem_instance):
-        starts = problems.problems[self.problem_size][problem_instance]['starts']
-        goals = problems.problems[self.problem_size][problem_instance]['goals']
-        holes = problems.problems[self.problem_size][problem_instance]['holes']
+    def _generate_random_state(self):
+        starts = self.instance['starts']
+        goals = self.instance['goals']
+        holes = self.instance['holes']
         
         num_bridges = self.rng.choice(self.max_action)
         bridges = self.rng.choice(holes, size=num_bridges, replace=True)
@@ -108,7 +102,7 @@ class EA:
         return state, bridges
     
     def _get_mutable_state(self, state):
-        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
+        mutable_cells = self.instance['mapping'].values()
         rows, cols = zip(*mutable_cells)
         mutable_state = state[rows, cols]
         return mutable_state
@@ -123,7 +117,7 @@ class EA:
         binary_str = format(state_idx, f'0{len(self.mapping)}b')[::-1]
         state = np.zeros((self.num_cols, self.num_cols), dtype=int)
 
-        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.mapping.values()))
+        mutable_cells = list(map(lambda x: (x // self.num_cols, x % self.num_cols), self.instance['mapping'].values()))
         rows, cols = zip(*mutable_cells)
 
         for i, (row, col) in enumerate(zip(rows, cols)):
@@ -135,14 +129,12 @@ class EA:
         if action == self.action_dims - 1:
             return action
 
-        return self.mapping[action]
+        return self.instance['mapping'][action]
     
     def _place_bridge(self, state, action):
         next_state = copy.deepcopy(state)
-        row = action // self.num_cols
-        col = action % self.num_cols
-        bridge = (row, col)
-        next_state[bridge] = 1
+        if action != self.action_dims - 1:        
+            next_state[tuple(action)] = 1
         return next_state
     
     def _create_graph(self):
@@ -159,7 +151,7 @@ class EA:
         3: Goal
         4: Hole
     """
-    def _calc_utility(self, problem_instance, state):
+    def _calc_utility(self, state):
         def manhattan_dist(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
         
@@ -178,7 +170,7 @@ class EA:
         for _ in range(self.configs_to_consider):
             tmp_desc = copy.deepcopy(desc)
             tmp_graph = copy.deepcopy(graph)
-            start, goal, obstacles = problems.get_entity_positions(self.problem_size, problem_instance, self.rng)
+            start, goal, obstacles = problems.get_entity_positions(self.instance, self.rng)
             
             tmp_desc[start], tmp_desc[goal] = 2, 3
             #  Place obstacle in cell only if bridge is not already there
@@ -206,7 +198,7 @@ class EA:
         return next_state
     
     # r(s,a,s') = u(s') - u(s) - c(a)
-    def _get_reward(self, problem_instance, state, action, next_state, num_action):
+    def _get_reward(self, state, action, next_state, num_action):
         reward = 0
         terminating_action = self.action_dims - 1
         
@@ -216,27 +208,17 @@ class EA:
         if not done:
             # Check if state and next state are equal
             if not np.array_equal(state, next_state):
-                util_s = self._calc_utility(problem_instance, state)
-                util_s_prime = self._calc_utility(problem_instance, next_state)
+                util_s = self._calc_utility(state)
+                util_s_prime = self._calc_utility(next_state)
                 reward = util_s_prime - util_s
-            
-            if self.cost_fn == 'linear':
-                action_cost = (self.action_cost * num_action)
-            elif self.cost_fn == 'sublinear':
-                action_cost = (self.action_cost * np.sqrt(num_action))
-            elif self.cost_fn == 'logarithmic':
-                action_cost = (self.action_cost * np.log(num_action))
-            else:
-                action_cost = self.action_cost
-                
-            reward -= action_cost
-        
+            reward -= self.action_cost * num_action
+                        
         return reward, (done or timeout)
         
     # Apply adaptation to task environment
-    def _step(self, problem_instance, state, action, num_action):
+    def _step(self, state, action, num_action):
         next_state = self._get_next_state(state, action)
-        reward, done = self._get_reward(problem_instance, state, action, next_state, num_action)  
+        reward, done = self._get_reward(state, action, next_state, num_action)  
         
         return reward, next_state, done
     
