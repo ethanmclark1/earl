@@ -14,7 +14,8 @@ class EA:
         self.rng = rng
         
         self.problem_size = env.spec.kwargs['map_name']
-        problems.generate_problems(self.problem_size, self.rng, num_instances)
+        # Uncomment the following line to generate new problem instances
+        # problems.generate_problems(self.problem_size, self.rng, num_instances)
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
         self.max_action = 10 if self.problem_size == '8x8' else 5
