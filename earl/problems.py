@@ -74,7 +74,7 @@ def generate_problems(problem_size, rng, num_instances):
                 problems[f'instance_{i}'] = problem
                 i += 1
 
-        problem_instances[problem_size] = data
+        problem_instances[problem_size] = problems
 
     with open(output_file, 'w') as file:
         yaml.dump(problem_instances, file)
