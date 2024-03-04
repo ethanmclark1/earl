@@ -1,6 +1,20 @@
 import argparse
 
-def get_arguments():
+def parse_num_instances():
+    parser = argparse.ArgumentParser(description='Initial argument parser.')
+    
+    parser.add_argument(
+        '--num_instances',
+        type=int, 
+        default=50, 
+        help='Number of instances to generate dynamically.'
+        )
+    
+    args, remaining_argv = parser.parse_known_args()
+    
+    return args.num_instances, remaining_argv
+
+def get_arguments(num_instances, remaining_argv):
     parser = argparse.ArgumentParser(
         description='Teach a multi-agent system to create its own context-dependent language.'
         )
@@ -13,28 +27,15 @@ def get_arguments():
         help='Choose which approach to use {default_val: %(default)s, choices: [%(choices)s]}'
         )
     
-    parser.add_argument(
-        '--problem_size',
-        type=str,
-        default='small',
-        choices=['small', 'big'],
-        help='Size of the problem instance {default_val: %(default)s, choices: [%(choices)s]}'
-        )
-    
+    instance_choices = [f'instance_{i}' for i in range(num_instances)]
     parser.add_argument(
         '--problem_instance', 
         type=str, 
-        default='columns', 
-        choices=['columns', 'pathway'],
-        help='Which problem to attempt {default_val: %(default)s, choices: [%(choices)s]}'
+        default='instance_0', 
+        choices=instance_choices + ['columns', 'pathway'],
+        help='Which problem to attempt (only applies to big problem size) {default_val: %(default)s, choices: [%(choices)s]}'
         )
     
-    parser.add_argument(
-        '--cost_fn',
-        type=str,
-        default='linear',
-        choices=['linear', 'sublinear', 'logarithmic', 'constant'],
-    )
     parser.add_argument(
         '--random_state', 
         type=int, 
@@ -51,6 +52,6 @@ def get_arguments():
         help='Type of way to predict the reward r_3 {default_val: %(default)s}'
         )
     
-    args = parser.parse_args()
+    args = parser.parse_args(remaining_argv)
         
-    return args.approach, args.problem_size, args.problem_instance, args.cost_fn, bool(args.random_state), args.reward_prediction_type
+    return args.approach, args.problem_instance, bool(args.random_state), args.reward_prediction_type
