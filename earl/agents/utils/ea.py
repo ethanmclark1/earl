@@ -14,8 +14,7 @@ class EA:
         self.rng = rng
         
         self.problem_size = env.spec.kwargs['map_name']
-        # Uncomment the following line to generate new problem instances
-        # problems.generate_problems(self.problem_size, self.rng, num_instances)
+        problems.generate_problems(self.problem_size, self.rng, num_instances)
         self._generate_init_state = self._generate_random_state if random_state else self._generate_fixed_state
         
         self.max_action = 10 if self.problem_size == '8x8' else 5
@@ -78,7 +77,7 @@ class EA:
             self.warmup_episodes = 10000
             self.instance = problems.get_instance(problem_instance)
         else:
-            self.warmup_episodes = 250
+            self.warmup_episodes = 0
             self.instance = problems.get_instance(problem_instance)
 
     def _generate_fixed_state(self):
@@ -127,31 +126,23 @@ class EA:
         return state
 
     def _transform_action(self, action):
-        if action == self.action_dims - 1:
+        if action == 0:
             return action
 
         return self.instance['mapping'][action]
     
     def _place_bridge(self, state, action):
         next_state = copy.deepcopy(state)
-        if action != self.action_dims - 1:        
+        if action != 0:      
             next_state[tuple(action)] = 1
         return next_state
     
     def _create_graph(self):
         graph = nx.grid_graph(dim=[self.num_cols, self.num_cols])
         nx.set_edge_attributes(graph, 25, 'weight')
-        return graph
-    
-    # Calculate utility for a given state by averaging A* path lengths over multiple trials
-    """
-    Cell Values:
-        0: Frozen
-        1: Bridge
-        2: Start
-        3: Goal
-        4: Hole
-    """
+        return graph     
+        
+    # Cell Values: 0: Frozen 1: Bridge 2: Start 3: Goal 4: Hole
     def _calc_utility(self, state):
         def manhattan_dist(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
@@ -191,7 +182,7 @@ class EA:
     def _get_next_state(self, state, action):
         transformed_action = self._transform_action(action)
         next_state = copy.deepcopy(state)
-        terminating_action = self.action_dims - 1
+        terminating_action = 0
         # Add stochasticity to actions
         if transformed_action != terminating_action and self.action_success_rate >= self.rng.random():
             next_state = self._place_bridge(state, transformed_action)
@@ -201,7 +192,7 @@ class EA:
     # r(s,a,s') = u(s') - u(s) - c(a)
     def _get_reward(self, state, action, next_state, num_action):
         reward = 0
-        terminating_action = self.action_dims - 1
+        terminating_action = 0
         
         done = action == terminating_action
         timeout = num_action == self.max_action
