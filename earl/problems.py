@@ -32,20 +32,20 @@ def generate_problems(problem_size, rng, num_instances):
         problem_instances = yaml.safe_load(file) or {}
         
     data = problem_instances.get(problem_size, {})
-    if len(data.keys()) == num_instances:
+    if data and len(data.keys()) == num_instances:
         return
-    elif len(data.keys()) > num_instances:
+    elif data and len(data.keys()) > num_instances:
         for i in range(num_instances, len(data.keys())):
             data.pop(f'instance_{i}')
     else:    
         flattened_list = [y for x in desc[problem_size] for y in x]
         
         problems = {}
-        i = len(data.keys())
         grid_size = (4, 4)
         num_starts = rng.integers(1, 3)
-        num_goals = rng.integers(1, 5)
-        num_holes = rng.integers(1, 6)
+        num_goals = rng.integers(2, 5)
+        num_holes = rng.integers(3, 6)
+        i = len(data.keys()) if data else 0
         all_positions = [[i, j] for i in range(grid_size[0]) for j in range(grid_size[1])]
         while i < num_instances:
             tmp_positions = all_positions.copy()
@@ -57,7 +57,7 @@ def generate_problems(problem_size, rng, num_instances):
             for pos in start + goal:
                 tmp_positions.remove(pos)
             mapping_positions = rng.choice(len(tmp_positions), size=4, replace=False)
-            mapping = {i: [int(pos // grid_size[0]), int(pos % grid_size[1])] for i, pos in enumerate(mapping_positions)}
+            mapping = {i: [int(pos // grid_size[0]), int(pos % grid_size[1])] for i, pos in enumerate(mapping_positions, start=1)}
             
             G = nx.grid_2d_graph(*grid_size)
             for hole in holes:
