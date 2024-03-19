@@ -4,39 +4,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.optim import Adam
-
 torch.manual_seed(seed=42)
-
-
-class RewardEstimator(nn.Module):
-    def __init__(self, input_dims, problem_size, lr, dropout_rate):
-        super(RewardEstimator, self).__init__()
-        
-        if problem_size == '8x8':
-            fc1_output = 128
-            fc2_output = 32
-        else:
-            fc1_output = 64
-            fc2_output = 16
-        
-        self.fc1 = nn.Linear(in_features=input_dims, out_features=fc1_output)   
-        self.ln1 = nn.LayerNorm(fc1_output)
-        
-        self.fc2 = nn.Linear(in_features=fc1_output, out_features=fc2_output)     
-        self.ln2 = nn.LayerNorm(fc2_output)
-        
-        self.fc3 = nn.Linear(in_features=fc2_output, out_features=1)
-        
-        self.dropout = nn.Dropout(p=dropout_rate)
-        self.optim = Adam(self.parameters(), lr=lr)
-        
-    def forward(self, x):
-        x = F.relu(self.ln1(self.fc1(x)))
-        x = self.dropout(x)
-        x = F.relu(self.ln2(self.fc2(x)))
-        x = self.dropout(x)
-        return self.fc3(x)
     
     
 # Permutation Invariant Neural Network 
